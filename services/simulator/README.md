@@ -109,6 +109,7 @@ Built-in scenarios are compiled into the binary:
 | `small` | Laptop size: Shibuya + Shinjuku, 50 couriers, ~2 orders/min at lunch, 10× courier speed, starts at 11:00 |
 | `normal-weekday` | All 23 wards at one-tenth of the design scale: ~5,200 orders/day, 600/h peak, 400 couriers on shifts |
 | `rainy-friday` | `normal-weekday`'s city, starting 11:00: rain from 11:30 triples demand, couriers 15 % slower, 10 % log off |
+| `rainy-friday-design-scale` | **Cluster only.** Game day GD-02 at the design's full scale: ~51,800 orders/day, 6,000/h peak, ×3 rain (≈ 5 orders/s), 4,600 couriers (~3,000 online at lunch, ~750 GPS points/s). See below |
 
 ```bash
 # Against the local stack (make up), with ADMIN_TOKEN from your .env:
@@ -126,7 +127,33 @@ docker run --rm -e ADMIN_TOKEN=... -e ORDERS_URL=http://orders:8000 ... \
 
 `-scenario` takes a built-in name or a path to your own YAML file. `-seed N` overrides the
 scenario's seed, `-duration` overrides how long it runs, and `-fresh` forces new merchants and
-couriers.
+couriers. `-scenario` defaults to the `SCENARIO` environment variable. **In the cluster the
+scenario is chosen with env `SCENARIO`** in [deploy/apps/services/simulator.yaml](../../deploy/apps/services/simulator.yaml)
+(or the environment's values file), and the args stay `[run]`.
+
+### Design-scale game day (cluster only)
+
+`rainy-friday-design-scale` reproduces the load in docs/design.md §4 for game day GD-02: about
+3,000 couriers online, ~750 GPS points/s, 3,000 open offer streams, and 5 orders/s once the rain
+starts. It is meant for the EKS cluster. A laptop cannot run it, and neither can the local
+Compose stack behind it.
+
+Resources for the simulator pod. These are **estimates**, from the per-courier cost of the small
+scenarios; measure them on the first run and update this table:
+
+| | Estimate |
+|---|---|
+| CPU | ~1–2 vCPU, mostly JSON encoding and HTTP for 750 location posts/s |
+| Memory | ~0.5–1 GiB: 4,600 goroutines, ~3,000 SSE connections and their buffers |
+| Requests/limits to set | requests `cpu: 1, memory: 768Mi`; limits `memory: 1536Mi` (the gitops default of 50m / 64Mi is for `small`) |
+| Open connections | ~3,000 long-lived SSE connections to dispatch plus a pooled set for the APIs (keep `nofile` ≥ 8192; the containerd default is far higher) |
+| Seeding | 40 merchants and 4,600 couriers through the admin API, ~1–3 min with 16 parallel workers. Raise `SEED_WAIT` if orders starts slowly |
+| Drain | idle couriers stop at once; `DRAIN_TIMEOUT` (60 s) cuts off deliveries still riding, so set `terminationGracePeriodSeconds` ≥ 90 |
+
+Make sure the receiving side is sized before starting it: fleet-ingest at ~750 requests/s,
+dispatch holding ~3,000 streams, and orders at ~5 orders/s (each also brings a quote, a pickup and a delivery call).
+The point of the game day is to watch the platform degrade gracefully, not to discover that
+a pod limit was left at its laptop value.
 
 ### Configuration (environment)
 
@@ -214,7 +241,7 @@ resume them.
 ## Development
 
 ```bash
-make sim-lint    # gofmt, go vet, golangci-lint (same config as api-go)
+make sim-lint    # gofmt, go vet, golangci-lint (same config as the other Go modules)
 make sim-test    # go test -race -cover ./...   (CI gate: 80 % total)
 ```
 

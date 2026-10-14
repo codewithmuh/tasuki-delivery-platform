@@ -152,8 +152,12 @@ jobs:
       - name: Smoke test (Shibuya → Shinjuku by bicycle)
         run: |
           docker run --detach --name routing --read-only --cap-drop ALL --publish 127.0.0.1:5000:5000 routing:ci
+          # Always show OSRM's own output: the load time on success, the reason on failure.
+          trap 'echo "--- docker logs routing"; docker logs routing 2>&1 | tail -n 50; docker inspect --format "state={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}" routing' EXIT
           for _ in $(seq 1 120); do
             if curl --fail --silent --output /dev/null 'http://127.0.0.1:5000/nearest/v1/bicycle/139.7016,35.6580'; then break; fi
+            # Stop waiting as soon as the container has exited; the trap prints why.
+            [ "$(docker inspect --format '{{.State.Running}}' routing)" = "true" ] || { echo "routing exited before it was ready"; exit 1; }
             sleep 1
           done
           route=$(curl --fail --silent --show-error 'http://127.0.0.1:5000/route/v1/bicycle/139.7016,35.6580;139.7005,35.6900?overview=false')

@@ -1,0 +1,4 @@
+# The image downloads and builds its own OSM data; never send a local build-data.sh output (~1 GB) as context.
+data/
+*.osm.pbf
+*.osrm*
