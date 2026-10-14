@@ -1,0 +1,59 @@
+[project]
+name = "api"
+version = "0.1.0"
+description = "Sample Python HTTP service for the production repo template."
+readme = "README.md"
+requires-python = ">=3.13"
+license = "MIT"
+dependencies = [
+  "fastapi>=0.143",
+  "uvicorn>=0.38",
+  "prometheus-client>=0.23",
+]
+
+[dependency-groups]
+dev = [
+  "httpx2>=2.13",
+  "mypy>=1.18",
+  "pytest>=8.4",
+  "pytest-cov>=7.0",
+  "ruff>=0.17",
+]
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/api"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "E", "W", "F",   # pycodestyle + pyflakes
+  "I",             # import sorting
+  "B",             # bugbear
+  "UP",            # pyupgrade
+  "SIM",           # simplify
+  "S",             # bandit (security)
+  "N",             # naming
+  "PT",            # pytest style
+  "ASYNC",         # async pitfalls
+  "RUF",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]  # asserts are how pytest works
+
+[tool.mypy]
+strict = true
+mypy_path = "src"
+packages = ["api"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --cov=api --cov-report=term-missing --cov-fail-under=80"
