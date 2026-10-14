@@ -2,6 +2,7 @@
 # PostgreSQL clusters they run are per environment and live with the environment (deploy/apps/base/).
 #   Kafka:      Strimzi on EKS, KRaft mode, proposed (ADR 0004 pending: Strimzi vs Redpanda vs Amazon MSK)
 #   PostgreSQL: CloudNativePG on EKS, proposed (ADR 0005 pending: CloudNativePG vs RDS Multi-AZ)
+#   Backups:    the Barman Cloud plugin for CloudNativePG (CNPG-I), to S3; proposed (ADR pending)
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -82,6 +83,47 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - RespectIgnoreDifferences=true
+    retry:
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 5m}
+---
+# Base backups and WAL archiving to S3 for CloudNativePG clusters (orders-db: deploy/apps/base/postgres.yaml,
+# its ObjectStore: deploy/platform/tasuki.yaml). The in-tree barmanObjectStore of CloudNativePG is deprecated in
+# favour of this plugin. It runs next to the operator, which finds it by its Service in the same namespace;
+# operator and plugin talk over mTLS with certificates from cert-manager (cert-manager.yaml, wave -6).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: plugin-barman-cloud
+  namespace: argocd
+  annotations:
+    # After the operator (-6) and cert-manager (-6); before the environments (0), whose ObjectStores are its CRD.
+    argocd.argoproj.io/sync-wave: "-5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    - repoURL: https://cloudnative-pg.github.io/charts
+      chart: plugin-barman-cloud
+      targetRevision: 0.8.1
+      helm:
+        releaseName: plugin-barman-cloud
+        valueFiles:
+          - $values/deploy/platform/values/plugin-barman-cloud.yaml
+    - repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+      targetRevision: main
+      ref: values
+  destination:
+    name: in-cluster
+    namespace: cnpg-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
     retry:
       limit: 10
       backoff: {duration: 10s, factor: 2, maxDuration: 5m}

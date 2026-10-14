@@ -1,0 +1,5 @@
+# Synced by the argo-rollouts-analysis Application (deploy/platform/argo-rollouts.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - error-budget-gate.yaml

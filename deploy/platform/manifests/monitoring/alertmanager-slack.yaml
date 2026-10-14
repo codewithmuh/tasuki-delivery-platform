@@ -1,0 +1,98 @@
+# Where alerts go: Slack, through an incoming webhook whose URL lives in AWS Secrets Manager
+# (tasuki/monitoring/alertmanager, property slack_webhook_url; deploy/README.md, "Alerting").
+#
+# The routes live in an AlertmanagerConfig, not in the chart's base config, for one reason: when the webhook
+# Secret is missing (not created yet, or the ExternalSecret failing), the Prometheus Operator rejects this
+# object and Alertmanager keeps running on the base config, whose only receiver is "null". Alerts still fire
+# (Prometheus' ALERTS series, the Alertmanager UI); they just notify nobody until the secret exists.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: alertmanager-slack
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: tasuki-monitoring
+  target:
+    name: alertmanager-slack
+    creationPolicy: Owner
+  data:
+    - secretKey: slack_webhook_url
+      remoteRef: {key: alertmanager, property: slack_webhook_url}
+---
+# Routing, in order (first match wins inside this config):
+#   1. namespace=tasuki-dev        -> slack-ticket: dev never pages, but a drill there can still check delivery
+#   2. severity=page|critical      -> slack-page:   act now (Tasuki's page alerts, the stack's critical ones)
+#   3. severity=ticket|warning     -> slack-ticket: act within working hours
+#   4. anything else (info, none)  -> null
+# The operator nests this under the base route with continue: true, so the base config's own rules (Watchdog
+# -> null) still apply. alertmanagerConfigMatcherStrategy None (values/kube-prometheus-stack.yaml) stops it from
+# adding namespace="monitoring" to every matcher.
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: tasuki
+spec:
+  route:
+    receiver: "null"
+    groupBy: [alertname, namespace]
+    groupWait: 30s
+    groupInterval: 5m
+    repeatInterval: 12h
+    routes:
+      - matchers:
+          - {name: namespace, value: tasuki-dev}
+        receiver: slack-ticket
+      - matchers:
+          - {name: severity, matchType: "=~", value: "page|critical"}
+        receiver: slack-page
+        repeatInterval: 1h
+      - matchers:
+          - {name: severity, matchType: "=~", value: "ticket|warning"}
+        receiver: slack-ticket
+        repeatInterval: 24h
+  receivers:
+    - name: "null"
+    - name: slack-page
+      slackConfigs:
+        - apiURL: {name: alertmanager-slack, key: slack_webhook_url}
+          sendResolved: true
+          title: '[{{ .Status | toUpper }}] PAGE {{ .CommonLabels.alertname }} {{ .CommonLabels.namespace }}'
+          # <!channel> notifies everyone in the channel: a page needs someone now.
+          text: >-
+            <!channel> {{ range .Alerts }}{{ .Annotations.summary }} {{ .Annotations.runbook_url }}
+            {{ end }}
+    - name: slack-ticket
+      slackConfigs:
+        - apiURL: {name: alertmanager-slack, key: slack_webhook_url}
+          sendResolved: true
+          title: '[{{ .Status | toUpper }}] ticket {{ .CommonLabels.alertname }} {{ .CommonLabels.namespace }}'
+          text: >-
+            {{ range .Alerts }}{{ .Annotations.summary }} {{ .Annotations.runbook_url }}
+            {{ end }}
+  inhibitRules:
+    # A Sloth SLO has a page (fast burn) and a ticket (slow burn) alert with the same sloth_id: while the page
+    # fires, the ticket adds nothing. Both sides must carry sloth_id: Alertmanager treats two missing labels as
+    # equal, so without it any page would mute every ticket that has no sloth_id.
+    - sourceMatch:
+        - {name: severity, value: page}
+        - {name: sloth_id, matchType: "=~", value: ".+"}
+      targetMatch:
+        - {name: severity, value: ticket}
+        - {name: sloth_id, matchType: "=~", value: ".+"}
+      equal: [sloth_id]
+    # Kafka down explains the lag and shedding alerts behind it, in the same environment.
+    - sourceMatch:
+        - {name: alertname, value: KafkaUnavailable}
+      targetMatch:
+        - {name: alertname, matchType: "=~", value: "FleetIngestShedding|OrdersOutboxLagHigh|KafkaConsumerLagHigh"}
+      equal: [namespace]
+    # Valkey down explains fleet-state and dispatch losing their cache.
+    - sourceMatch:
+        - {name: alertname, value: FleetCacheUnavailable}
+        - {name: component, value: valkey}
+      targetMatch:
+        - {name: alertname, value: FleetCacheUnavailable}
+        - {name: component, matchType: "=~", value: "fleet-state|dispatch"}
+      equal: [namespace]

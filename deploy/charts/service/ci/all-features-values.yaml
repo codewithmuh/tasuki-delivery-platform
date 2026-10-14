@@ -7,6 +7,9 @@ metrics:
   port: 9100
 autoscaling:
   enabled: true
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 600
 ingress:
   enabled: true
   host: example.tasuki.example
@@ -35,3 +38,6 @@ cronJobs:
   cleanup:
     schedule: "0 * * * *"
     args: [cleanup]
+files:
+  example.yaml: |
+    key: value

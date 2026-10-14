@@ -11,7 +11,12 @@ env:
   KAFKA_BROKERS: tasuki-kafka-bootstrap:9092
   KAFKA_GROUP: dispatch
   REDIS_URL: redis://redis:6379/0
+  # The routing Service listens on 80 and forwards to OSRM's 5000 (the chart's Service), so no port here.
   ROUTING_URL: http://routing
+  # The code's defaults, spelled out because drills reason about them: an unanswered offer expires after 30 s;
+  # after a Redis loss, dispatch rebuilds its state from the last 30 minutes of orders.events and dispatch.events.
+  OFFER_TTL: 30s
+  RECOVERY_WINDOW: 30m
 secretEnv:
   COURIER_TOKEN_SECRET: {secret: tasuki-app, key: COURIER_TOKEN_SECRET}
 

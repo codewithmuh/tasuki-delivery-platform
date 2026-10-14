@@ -1,0 +1,50 @@
+{{- if .Values.rollout.enabled }}
+# The same pods as the Deployment would run, released as a canary by Argo Rollouts (values.yaml "rollout").
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: {{ include "service.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "service.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicas }}
+  {{- end }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      {{- include "service.serverSelectorLabels" . | nindent 6 }}
+  rollbackWindow:
+    revisions: {{ .Values.rollout.rollbackWindowRevisions }}
+  strategy:
+    canary:
+      # Like the Deployment: never below the desired count, one extra pod at a time.
+      maxUnavailable: 0
+      maxSurge: 1
+      steps:
+        {{- if .Values.rollout.gate.enabled }}
+        - analysis:
+            templates:
+              # deploy/platform/manifests/argo-rollouts/error-budget-gate.yaml
+              - templateName: error-budget-gate
+                clusterScope: true
+            args:
+              - name: service
+                value: {{ .Values.rollout.gate.service | default (include "service.name" .) | quote }}
+              {{- with .Values.rollout.gate.slo }}
+              - name: slo
+                value: {{ . | quote }}
+              {{- end }}
+            {{- if .Values.rollout.gate.dryRun }}
+            # Argo records the gate's answer, but a "no" does not abort the Rollout.
+            dryRun:
+              - metricName: error-budget
+            {{- end }}
+        {{- end }}
+        {{- with .Values.rollout.steps }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+  template:
+    {{- include "service.serverPodTemplate" (dict "root" . "hashLabel" "rollouts-pod-template-hash") | nindent 4 }}
+{{- end }}

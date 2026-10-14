@@ -1,0 +1,30 @@
+# Step 1 of every Tasuki Rollout (deploy/charts/service/templates/rollout.yaml): may this service start a canary
+# now? The rollout gate (tools/rollout-gate, Deployment rollout-gate in monitoring) answers from the service's SLO
+# error budgets. The live copy of tools/rollout-gate/examples/analysis-template.yaml.
+#
+# The web provider reads the gate's JSON decision. allowed: false fails the one measurement, failureLimit 0 fails
+# the analysis, and a failed analysis aborts the Rollout while the stable pods keep serving. If the gate cannot
+# be reached, the measurement errors, and after consecutiveErrorLimit (default 4) the analysis errors and the
+# Rollout aborts too: an unreachable gate blocks, like a gate that cannot read a budget (it fails closed).
+apiVersion: argoproj.io/v1alpha1
+kind: ClusterAnalysisTemplate
+metadata:
+  name: error-budget-gate
+spec:
+  args:
+    # Sloth service name: orders, fleet-state, tracking, dispatch (observability/slo/specs/).
+    - name: service
+    # One SLO of that service, or "" for all of them (the policy freezes a service when any budget is spent).
+    - name: slo
+      value: ""
+  metrics:
+    - name: error-budget
+      # Budgets move over hours; one answer per rollout is enough.
+      count: 1
+      failureLimit: 0
+      successCondition: result.allowed == true
+      provider:
+        web:
+          url: "http://rollout-gate.monitoring.svc.cluster.local:8080/v1/gate?service={{args.service}}&slo={{args.slo}}"
+          jsonPath: "{$}"
+          timeoutSeconds: 10

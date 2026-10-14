@@ -50,6 +50,39 @@ spec:
       ports:
         - port: 9187
 ---
+# A restore of orders-db into a new cluster called orders-db-restore (deploy/README.md, "Backups and restore";
+# game day GD-08). It reads the backups from S3 (egress is not restricted), and needs only what the operator and
+# Prometheus need; nothing in the namespace connects to it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: orders-db-restore
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: orders-db-restore
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: orders-db-restore
+      ports:
+        - port: 5432
+        - port: 8000
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cnpg-system
+      ports:
+        - port: 8000
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 9187
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

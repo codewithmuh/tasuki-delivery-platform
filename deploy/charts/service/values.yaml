@@ -33,7 +33,8 @@ metrics:
     interval: 30s
 
 probes:
-  # Liveness never checks dependencies; readiness does (runtime contract).
+  # Liveness never checks dependencies. Readiness is each service's call (runtime contract): orders keeps
+  # answering 503 through a short database outage (a grace window), fleet-ingest ignores Kafka and sheds load.
   liveness:
     httpGet:
       path: /healthz
@@ -86,10 +87,9 @@ env: {}
 # tasuki-app is synced from AWS Secrets Manager by External Secrets (deploy/apps/base/external-secret.yaml).
 secretEnv: {}
 
-# Service images are built for linux/amd64 only (release.yml has no platforms list), while Karpenter also
-# launches Graviton (arm64) nodes. Remove this once images are multi-arch, so pods can land on cheaper arm64.
-nodeSelector:
-  kubernetes.io/arch: amd64
+# Service images are multi-arch (release.yml builds amd64 and arm64), so pods can land on any Karpenter node,
+# including cheaper Graviton ones. Set a selector per service only if it truly needs one.
+nodeSelector: {}
 
 podSecurityContext:
   runAsNonRoot: true
@@ -120,6 +120,42 @@ autoscaling:
   minReplicas: 2
   maxReplicas: 6
   targetCPUUtilizationPercentage: 70
+  # HorizontalPodAutoscaler behavior (autoscaling/v2), passed through as is. Empty: Kubernetes' defaults
+  # (scale up at once, scale down after a 5-minute window).
+  behavior: {}
+
+# Argo Rollouts canary instead of a Deployment (controller: deploy/platform/argo-rollouts.yaml). Off by default;
+# prod turns it on per service in deploy/apps/overlays/prod/values/. There is no traffic router, so the Service
+# splits traffic by pod count: setWeight 25 with 2 replicas means 1 canary pod next to 2 stable ones.
+# Only updates run the steps: the first version of a Rollout goes straight to 100 %.
+rollout:
+  enabled: false
+  # Step 1, before any traffic moves: ask the error-budget gate (tools/rollout-gate) through the
+  # ClusterAnalysisTemplate error-budget-gate. A spent budget fails the analysis, the Rollout aborts and the
+  # stable pods keep serving (docs/slo/error-budget-policy.md).
+  gate:
+    enabled: true
+    # Sloth service whose budget decides (observability/slo/specs/). Empty: the release name.
+    service: ""
+    # One SLO of that service. Empty: all of them, because the policy freezes a service when any budget is spent.
+    slo: ""
+    # Record the gate's answer without acting on it: for a service whose SLO has no data yet.
+    dryRun: false
+  # The steps after the gate.
+  steps:
+    - setWeight: 25
+    - pause: {duration: 5m}
+    - setWeight: 50
+    - pause: {duration: 5m}
+  # Going back to one of the last N revisions skips the steps and the gate: a rollback never waits for a budget.
+  # Must not exceed revisionHistoryLimit, or the old ReplicaSet is already gone.
+  rollbackWindowRevisions: 3
+
+# Read-only files for the long-running pods, from a ConfigMap: file name -> content, mounted at filesMountPath.
+# Not mounted in the PreSync Job, which runs before the ConfigMap exists on a first sync. The simulator uses it
+# for a scenario that is not built in (SCENARIO=/etc/tasuki/<file>).
+files: {}
+filesMountPath: /etc/tasuki
 
 pdb:
   enabled: true

@@ -35,6 +35,9 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- if gt (int $budget) (int .Values.terminationGracePeriodSeconds) -}}
 {{- fail (printf "preStopSleepSeconds + shutdownDrainSeconds (%d s) exceeds terminationGracePeriodSeconds (%d s): the kubelet would SIGKILL mid-drain" (int $budget) (int .Values.terminationGracePeriodSeconds)) -}}
 {{- end -}}
+{{- if and .Values.rollout.enabled (gt (int .Values.rollout.rollbackWindowRevisions) (int .Values.revisionHistoryLimit)) -}}
+{{- fail "rollout.rollbackWindowRevisions exceeds revisionHistoryLimit: the ReplicaSets to roll back to would already be deleted" -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "service.image" -}}
@@ -69,9 +72,9 @@ The OpenTelemetry defaults are merged under .Values.env, so a service can overri
 {{- end -}}
 
 {{/*
-Pod spec shared by the Deployment, the PreSync Job and CronJobs.
+Pod spec shared by the Deployment (or Rollout), the PreSync Job and CronJobs.
 Call with a dict: root (the chart context), args (overrides .Values.args when set),
-long (true for the long-running Deployment: probes, preStop and the drain budget),
+long (true for the long-running pods: probes, preStop, the drain budget and the files volume),
 serviceAccount (overrides the release's own ServiceAccount).
 */}}
 {{- define "service.podSpec" -}}
@@ -140,10 +143,20 @@ containers:
     volumeMounts:
       - name: tmp
         mountPath: /tmp
+      {{- if and .long $v.files }}
+      - name: files
+        mountPath: {{ $v.filesMountPath }}
+        readOnly: true
+      {{- end }}
 volumes:
   - name: tmp
     emptyDir:
       sizeLimit: {{ $v.tmpVolume.sizeLimit }}
+  {{- if and .long $v.files }}
+  - name: files
+    configMap:
+      name: {{ include "service.name" $root }}-files
+  {{- end }}
 {{- with $v.nodeSelector }}
 nodeSelector:
   {{- toYaml . | nindent 2 }}
@@ -156,4 +169,50 @@ tolerations:
 affinity:
   {{- toYaml . | nindent 2 }}
 {{- end }}
+{{- end -}}
+
+{{/*
+Pod template of the long-running pods, shared by the Deployment and the Rollout. Call with a dict: root (the chart
+context) and hashLabel, the label the controller adds per revision (Deployment: pod-template-hash, Argo Rollouts:
+rollouts-pod-template-hash), so the spread constraints count only pods of the same revision.
+*/}}
+{{- define "service.serverPodTemplate" -}}
+{{- $root := .root -}}
+{{- $v := $root.Values -}}
+{{- $annotations := deepCopy $v.podAnnotations -}}
+{{- with $v.files -}}
+{{- /* A changed file changes the pod template, so the pods roll and read it (a ConfigMap update alone does not). */ -}}
+{{- $_ := set $annotations "checksum/files" (toJson . | sha256sum) -}}
+{{- end -}}
+metadata:
+  labels:
+    {{- include "service.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: server
+    {{- with $v.podLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- include "service.podSpec" (dict "root" $root "long" true) | nindent 2 }}
+  {{- if $v.topologySpread.enabled }}
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: {{ $v.topologySpread.zoneWhenUnsatisfiable }}
+      labelSelector:
+        matchLabels:
+          {{- include "service.serverSelectorLabels" $root | nindent 10 }}
+      # Count only pods of the same revision, so a rollout is spread on its own terms.
+      matchLabelKeys: [{{ .hashLabel }}]
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: {{ $v.topologySpread.hostWhenUnsatisfiable }}
+      labelSelector:
+        matchLabels:
+          {{- include "service.serverSelectorLabels" $root | nindent 10 }}
+      matchLabelKeys: [{{ .hashLabel }}]
+  {{- end }}
 {{- end -}}

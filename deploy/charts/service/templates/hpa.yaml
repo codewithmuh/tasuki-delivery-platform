@@ -7,9 +7,15 @@ metadata:
   labels:
     {{- include "service.labels" . | nindent 4 }}
 spec:
+  # A Rollout has the same scale subresource as a Deployment, so the HPA drives either.
   scaleTargetRef:
+    {{- if .Values.rollout.enabled }}
+    apiVersion: argoproj.io/v1alpha1
+    kind: Rollout
+    {{- else }}
     apiVersion: apps/v1
     kind: Deployment
+    {{- end }}
     name: {{ include "service.name" . }}
   minReplicas: {{ .Values.autoscaling.minReplicas }}
   maxReplicas: {{ .Values.autoscaling.maxReplicas }}
@@ -20,4 +26,8 @@ spec:
         target:
           type: Utilization
           averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}
+  {{- with .Values.autoscaling.behavior }}
+  behavior:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 {{- end }}

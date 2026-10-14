@@ -4,7 +4,9 @@
 #   - every Helm chart pinned in deploy/platform/ (version, values files and valuesObject from the
 #     Application or ApplicationSet itself, cluster annotations replaced by sample values),
 #   - every Kustomize directory (deploy/platform, its manifests/, deploy/policies, deploy/apps overlays),
-#   - deploy/charts/service once per (service, environment) of the tasuki-services ApplicationSet,
+#   - deploy/charts/service once per (service, environment) of the tasuki-services ApplicationSet, and for
+#     the platform Applications that use it (rollout-gate),
+#   - deploy/charts/postgres-backup once per environment of the orders-db-backups ApplicationSet,
 #   - deploy/charts/prometheus-rules once per rule file in observability/,
 # then validates it all with kubeconform (-strict, Kubernetes 1.35 and CRD schemas), runs the Kyverno
 # policy unit tests, checks the rendered Tasuki workloads against those policies and with Trivy, and
@@ -38,6 +40,12 @@ fail() {
   echo "deploy-lint: $*" >&2
   exit 1
 }
+
+# Say which tool is missing instead of dying later with "command not found" (exit 127).
+for tool in helm yq jq kubeconform kyverno trivy shellcheck; do
+  command -v "$tool" >/dev/null 2>&1 || fail "missing tool: $tool (CI pins the versions in .github/workflows/deploy.yml)"
+done
+command -v kustomize >/dev/null 2>&1 || command -v kubectl >/dev/null 2>&1 || fail "missing tool: kustomize or kubectl"
 
 kustomize_build() {
   if command -v kustomize >/dev/null 2>&1; then kustomize build "$1"; else kubectl kustomize "$1"; fi
@@ -76,6 +84,7 @@ for values in deploy/charts/service/ci/*.yaml; do
   helm lint deploy/charts/service --strict --quiet --values "$values"
 done
 helm lint deploy/charts/prometheus-rules --strict --quiet --values deploy/charts/prometheus-rules/ci/example-values.yaml
+helm lint deploy/charts/postgres-backup --strict --quiet --values deploy/charts/postgres-backup/ci/example-values.yaml
 
 # ---------------------------------------------------------------------------------------------------
 step "Render platform Helm charts (deploy/platform/*.yaml)"
@@ -86,6 +95,8 @@ fill_cluster_values() {
     -e 's/{{ \.metadata\.annotations\.vpc_id }}/vpc-0123456789abcdef0/g' \
     -e 's/{{ \.metadata\.annotations\.karpenter_queue_name }}/tasuki-karpenter/g' \
     -e 's/{{ \.metadata\.annotations\.aws_account_id }}/123456789012/g' \
+    -e 's/{{ \.metadata\.annotations\.backup_bucket }}/tasuki-pg-backups-123456789012/g' \
+    -e 's/{{ \.metadata\.annotations\.backup_session }}/20261014T0930Z/g' \
     -e 's/{{ \.name }}/in-cluster/g'
 }
 
@@ -144,6 +155,29 @@ while IFS= read -r source; do
   echo "${app}: ${chart} ${version}"
 done <"$scratch/charts.jsonl"
 
+# Platform Applications that render a chart from this repository (rollout-gate uses deploy/charts/service).
+# Their value files are relative to the chart, as Argo CD reads them.
+# shellcheck disable=SC2016 # yq expression, not shell
+yq -o=json -I=0 '
+  select(.kind == "Application" and ((.spec.source.path // "") | test("^deploy/charts/")))
+  | {
+      "app": .metadata.name, "namespace": .spec.destination.namespace, "path": .spec.source.path,
+      "release": .spec.source.helm.releaseName, "valueFiles": (.spec.source.helm.valueFiles // [])
+    }' "$out/platform/applications.yaml" >"$scratch/local-charts.jsonl"
+while IFS= read -r source; do
+  app="$(jq -r .app <<<"$source")"
+  path="$(jq -r .path <<<"$source")"
+  namespace="$(jq -r .namespace <<<"$source")"
+  args=(--namespace "$namespace")
+  while IFS= read -r file; do
+    [[ -f "${path}/${file}" ]] || fail "${app}: value file ${path}/${file} does not exist"
+    args+=(--values "${path}/${file}")
+  done < <(jq -r '.valueFiles[]' <<<"$source")
+  # Into apps/, so the policy and Trivy checks below see it too.
+  helm_template "$(jq -r .release <<<"$source")" "$path" "${args[@]}" >"$out/apps/${namespace}-${app}.yaml"
+  echo "${app}: ${path}"
+done <"$scratch/local-charts.jsonl"
+
 # ---------------------------------------------------------------------------------------------------
 step "Render Kustomize directories"
 for dir in deploy/platform/manifests/* deploy/policies deploy/apps/overlays/*; do
@@ -191,6 +225,36 @@ done
 for values in deploy/charts/service/ci/*.yaml; do
   helm_template ci deploy/charts/service --namespace tasuki-dev --values "$values" >"$out/chart-ci/$(basename "$values")"
 done
+# Every key a service reads from tasuki-app must be listed in the ExternalSecret, which fails loudly when Secrets
+# Manager lacks one; a key missing from the list would instead stop the pods (CreateContainerConfigError).
+listed_keys="$(yq '.spec.data[].secretKey' deploy/apps/base/external-secret.yaml)"
+used_keys="$(yq -N '.secretEnv // {} | to_entries[] | select(.value.secret == "tasuki-app") | .value.key' \
+  deploy/apps/services/*.yaml deploy/apps/overlays/*/values/*.yaml | sort -u)"
+for key in $used_keys; do
+  grep -qxF "$key" <<<"$listed_keys" || fail "tasuki-app key ${key} is used by a service but not listed in deploy/apps/base/external-secret.yaml"
+done
+echo "tasuki-app keys used by services are all listed in the ExternalSecret"
+
+# ---------------------------------------------------------------------------------------------------
+step "Render orders-db ObjectStores (deploy/charts/postgres-backup x orders-db-backups ApplicationSet)"
+backups='select(.kind == "ApplicationSet" and .metadata.name == "orders-db-backups")'
+yq -o=json "$backups | .spec.template.spec.source.helm.valuesObject" deploy/platform/tasuki.yaml >"$scratch/backups.values.json"
+yq -o=json -I=0 "$backups | .spec.generators[0].matrix.generators[1].list.elements[]" deploy/platform/tasuki.yaml |
+  while IFS= read -r element; do
+    env="$(jq -r .env <<<"$element")"
+    # Fill in the list element's keys ({{ .env }}, {{ .retention }}), then the cluster annotations.
+    # shellcheck disable=SC2016 # jq program, not shell
+    jq --argjson element "$element" '
+      walk(if type == "string"
+           then reduce ($element | to_entries[]) as $kv (.; gsub("\\{\\{ \\.\($kv.key) \\}\\}"; $kv.value | tostring))
+           else . end)' "$scratch/backups.values.json" | fill_cluster_values >"$scratch/backups-${env}.values.json"
+    if grep -q '{{' "$scratch/backups-${env}.values.json"; then
+      fail "orders-db-backups: valuesObject uses a template variable this script does not know"
+    fi
+    helm_template orders-db-backups deploy/charts/postgres-backup --namespace "tasuki-${env}" \
+      --values "$scratch/backups-${env}.values.json" >"$out/apps/${env}-orders-db-backups.yaml"
+    echo "orders-db-backups-${env}"
+  done
 
 # ---------------------------------------------------------------------------------------------------
 step "Render SLO and alert rules (observability/ x deploy/charts/prometheus-rules)"
@@ -249,6 +313,16 @@ step "Kyverno policy unit tests"
 kyverno test deploy/policies/tests
 
 step "Tasuki workloads pass the Tasuki policies"
+# Kyverno's autogen and Trivy know Deployments, not Argo Rollouts, and would skip the prod canaries. A Rollout's
+# pod template is exactly what its Deployment would have been, so check each Rollout as that Deployment.
+policy_view="$work/policy-view"
+mkdir -p "$policy_view"
+for file in "$out"/apps/*.yaml; do
+  yq 'with(select(.kind == "Rollout");
+        .apiVersion = "apps/v1" | .kind = "Deployment" | del(.spec.strategy) | del(.spec.rollbackWindow))' \
+    "$file" >"$policy_view/$(basename "$file")"
+done
+echo "$(cat "$out"/apps/*.yaml | grep -c '^kind: Rollout$' || true) Rollouts checked as Deployments"
 # The image-signature policy needs the registry and Sigstore, so it is checked in-cluster (PolicyReports).
 report="$scratch/kyverno-apply.txt"
 if ! kyverno apply \
@@ -256,7 +330,7 @@ if ! kyverno apply \
   deploy/policies/require-requests-limits.yaml \
   deploy/policies/require-probes.yaml \
   deploy/policies/restrict-pod-security.yaml \
-  --resource "$out/apps" \
+  --resource "$policy_view" \
   --values-file deploy/policies/tests/values.yaml >"$report" 2>&1; then
   cat "$report"
   fail "kyverno apply failed"
@@ -271,7 +345,7 @@ grep -qE '^pass: [1-9][0-9]*, fail: 0, warn: 0, error: 0' "$report" || {
 step "Trivy misconfiguration scan of the rendered Tasuki workloads"
 # The repository-wide Trivy scan cannot render deploy/charts/service (image.repository and image.tag are
 # required on purpose), so it never sees the Deployments. Scan what Argo CD will actually apply instead.
-trivy config --quiet --severity HIGH,CRITICAL --exit-code 1 "$out/apps"
+trivy config --quiet --severity HIGH,CRITICAL --exit-code 1 "$policy_view"
 
 # ---------------------------------------------------------------------------------------------------
 step "shellcheck"

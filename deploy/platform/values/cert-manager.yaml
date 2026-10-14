@@ -1,0 +1,27 @@
+# cert-manager (charts.jetstack.io). Only the CloudNativePG Barman Cloud plugin's certificates for now.
+
+# CRDs from the chart, kept if the chart is ever removed (deleting them would delete every Certificate).
+crds:
+  enabled: true
+  keep: true
+
+resources:
+  requests: {cpu: 10m, memory: 64Mi}
+  limits: {memory: 256Mi}
+webhook:
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {memory: 128Mi}
+cainjector:
+  resources:
+    requests: {cpu: 10m, memory: 64Mi}
+    limits: {memory: 256Mi}
+
+# A post-install Job that waits for the webhook. Argo CD's health checks already wait for the Deployments, and
+# the plugin's sync retries until its Certificates are accepted.
+startupapicheck:
+  enabled: false
+
+prometheus:
+  servicemonitor:
+    enabled: true

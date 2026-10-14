@@ -1,4 +1,5 @@
-# The hot path at peak (~750 GPS points/s, design.md §4): scale on CPU.
+# The hot path at peak (~750 GPS points/s, design.md §4): scale on CPU. Stateless and ready at once, so 70 %
+# leaves enough headroom; six replicas at the 100m request still fit the prod quota with everything else.
 autoscaling:
   enabled: true
   minReplicas: 2
@@ -7,3 +8,10 @@ autoscaling:
 resources:
   requests: {cpu: 100m, memory: 64Mi}
   limits: {memory: 128Mi}
+# Canary, gated by the budget a bad fleet-ingest release would spend: fleet-state's location freshness (GPS
+# points reach Redis within 2 s). fleet-ingest has no SLO of its own; its points feed that one.
+rollout:
+  enabled: true
+  gate:
+    service: fleet-state
+    slo: location-freshness

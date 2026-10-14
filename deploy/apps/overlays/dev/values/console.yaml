@@ -1,0 +1,7 @@
+# No ingress yet: the browser reaches the console and tracking through two port-forwards
+#   kubectl -n tasuki-dev port-forward svc/console 8088:80
+#   kubectl -n tasuki-dev port-forward svc/tracking 8081:80
+# so the page must call tracking on its own origin (tracking allows http://localhost:8088, values/tracking.yaml).
+# With an ingress, leave it empty: /v1/* and the page share one origin.
+env:
+  CONSOLE_TRACKING_BASE_URL: http://localhost:8081

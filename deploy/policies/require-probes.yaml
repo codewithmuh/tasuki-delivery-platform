@@ -1,6 +1,7 @@
 # Without a readiness probe a pod gets traffic before it can serve it (and during shutdown); without a
-# liveness probe a hung process is never restarted. Checked on Deployments, which is where services
-# live; Jobs and operator-managed pods (Kafka, PostgreSQL) are out of scope.
+# liveness probe a hung process is never restarted. Checked on Deployments and Argo Rollouts Rollouts, which
+# is where services live (prod canaries are Rollouts, with the same pod template); Jobs and operator-managed
+# pods (Kafka, PostgreSQL) are out of scope.
 apiVersion: policies.kyverno.io/v1
 kind: ValidatingPolicy
 metadata:
@@ -16,6 +17,10 @@ spec:
         apiVersions: [v1]
         operations: [CREATE, UPDATE]
         resources: [deployments]
+      - apiGroups: [argoproj.io]
+        apiVersions: [v1alpha1]
+        operations: [CREATE, UPDATE]
+        resources: [rollouts]
     namespaceSelector:
       matchLabels:
         app.kubernetes.io/part-of: tasuki

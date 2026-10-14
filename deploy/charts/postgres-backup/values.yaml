@@ -1,0 +1,23 @@
+# One ObjectStore (barmancloud.cnpg.io/v1), named after the release. A Cluster uses it through
+# spec.plugins[].parameters.barmanObjectName (deploy/apps/base/postgres.yaml).
+
+# Required. The S3 bucket from infra/bootstrap (Terraform output backup_bucket): versioned, KMS-encrypted, and kept
+# when the platform is destroyed.
+bucket: ""
+# Required. The top-level prefix, one per environment: the Pod Identity role of each namespace may only read and
+# write under its own (infra/platform/backups.tf).
+prefix: ""
+# Required. When this platform was created (Terraform output backup_session). CloudNativePG refuses to archive WAL
+# into an archive that is not empty, so a cluster created by a later `make aws-up` needs a fresh path; this keeps
+# each session's backups apart and restorable.
+session: ""
+
+# How far back a restore can go (Barman recovery window: d, w or m). The sidecar deletes older base backups and
+# WAL while the cluster runs; the bucket's lifecycle rules delete what sessions that no longer run left behind.
+retentionPolicy: 7d
+
+# The Barman Cloud sidecar in every PostgreSQL pod (it archives WAL and takes base backups).
+sidecar:
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}

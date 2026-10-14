@@ -24,6 +24,7 @@ spec:
     - https://open-telemetry.github.io/opentelemetry-helm-charts
     - https://strimzi.io/charts/
     - https://cloudnative-pg.github.io/charts
+    - https://charts.jetstack.io
   destinations:
     - name: in-cluster
       namespace: "*"

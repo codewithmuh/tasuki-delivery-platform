@@ -37,6 +37,7 @@ spec:
 ---
 # Grafana's admin password, generated once in the cluster by External Secrets (never in git, never
 # re-rolled by a re-render). Read it with: kubectl -n monitoring get secret grafana-admin -o jsonpath=...
+# Also Alertmanager's Slack webhook (from Secrets Manager) and the routes that use it (AlertmanagerConfig).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

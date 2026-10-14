@@ -1,0 +1,4 @@
+# What the orders-db-backups ApplicationSet passes, with sample cluster annotations.
+bucket: tasuki-pg-backups-123456789012
+prefix: tasuki-dev
+session: 20261014T0930Z

@@ -31,5 +31,12 @@ reportsController:
   resources:
     requests: {cpu: 50m, memory: 64Mi}
     limits: {memory: 256Mi}
+  # require-probes also matches Argo Rollouts (the prod canaries). Kyverno cannot grant itself access to a
+  # custom resource, so the background scan needs read access here, or Rollouts never show up in PolicyReports.
+  rbac:
+    clusterRole:
+      extraResources:
+        - apiGroups: [argoproj.io]
+          resources: [rollouts]
   serviceMonitor:
     enabled: true

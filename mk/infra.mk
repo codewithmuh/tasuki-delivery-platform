@@ -33,7 +33,7 @@ aws-guard:
 	@$(INFRA_SH); require_aws_profile; require_tasuki_account
 	@echo "AWS account check passed (profile $$AWS_PROFILE)."
 
-aws-bootstrap: aws-guard ## AWS, once per account: state bucket, GitHub OIDC roles, budget alerts
+aws-bootstrap: aws-guard ## AWS, once per account (again when infra/bootstrap changes): state bucket, OIDC roles, budget, backup bucket
 	$(INFRA_SCRIPTS)/create-state-bucket.sh
 	$(call infra_init,$(INFRA_BOOTSTRAP))
 	$(TERRAFORM) -chdir=$(INFRA_BOOTSTRAP) apply

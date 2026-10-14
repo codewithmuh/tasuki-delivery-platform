@@ -1,6 +1,10 @@
+# Canary through Argo Rollouts, gated by the orders error budgets (availability and latency). This is the
+# Rollout game day GD-03 exercises.
+rollout:
+  enabled: true
 env:
   DJANGO_ALLOWED_HOSTS: orders,orders.tasuki-prod,orders.tasuki-prod.svc,orders.tasuki-prod.svc.cluster.local
-  TRACKING_BASE_URL: http://tracking.tasuki-prod.svc.cluster.local
+  TRACKING_PAGE_URL: http://console.tasuki-prod.svc.cluster.local # public URL once an ingress and domain exist
   WEB_CONCURRENCY: "3"
 resources:
   requests: {cpu: 250m, memory: 384Mi}

@@ -20,3 +20,11 @@ results:
     kind: Deployment
     resources: [monitoring/skipped-platform-namespace]
     result: skip
+  - policy: require-probes
+    kind: Rollout
+    resources: [tasuki-prod/good-rollout]
+    result: pass
+  - policy: require-probes
+    kind: Rollout
+    resources: [tasuki-prod/bad-rollout-no-readiness]
+    result: fail

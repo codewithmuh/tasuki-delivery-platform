@@ -1,0 +1,13 @@
+# The Argo Rollouts path: a canary Rollout (instead of the Deployment), the gate in dry-run on one SLO, and an HPA
+# that targets the Rollout.
+image:
+  repository: ghcr.io/codewithmuh/tasuki-delivery-platform/example
+  tag: "0.1.0"
+rollout:
+  enabled: true
+  gate:
+    service: example-slo-service
+    slo: availability
+    dryRun: true
+autoscaling:
+  enabled: true

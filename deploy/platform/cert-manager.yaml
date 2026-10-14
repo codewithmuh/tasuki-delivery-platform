@@ -1,0 +1,49 @@
+# cert-manager: issues the TLS certificates the CloudNativePG Barman Cloud plugin uses between the operator and
+# the plugin (data-operators.yaml). Nothing else uses it yet; the ALB gets its certificate from ACM, not from here.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+  annotations:
+    # Before the Barman Cloud plugin (-5), whose Certificates need cert-manager's CRDs and webhook.
+    argocd.argoproj.io/sync-wave: "-6"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    - repoURL: https://charts.jetstack.io
+      chart: cert-manager
+      targetRevision: v1.21.2
+      helm:
+        releaseName: cert-manager
+        valueFiles:
+          - $values/deploy/platform/values/cert-manager.yaml
+    - repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+      targetRevision: main
+      ref: values
+  destination:
+    name: in-cluster
+    namespace: cert-manager
+  # cert-manager's cainjector writes the webhook's CA bundle at runtime; do not fight it.
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      name: cert-manager-webhook
+      jqPathExpressions: [".webhooks[]?.clientConfig.caBundle"]
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      name: cert-manager-webhook
+      jqPathExpressions: [".webhooks[]?.clientConfig.caBundle"]
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 5m}

@@ -7,8 +7,8 @@ one session**: `make aws-up` before working on it, `make aws-down` after, so it 
 
 | Stack | Creates | Run |
 |---|---|---|
-| [bootstrap/](bootstrap/) | GitHub OIDC provider, CI roles `tasuki-github-plan` (read-only) and `tasuki-github-apply`, monthly budget alerts. The S3 state bucket is made by [scripts/create-state-bucket.sh](scripts/create-state-bucket.sh). | Once per account: `make aws-bootstrap` |
-| [platform/](platform/) | VPC (3 AZs, public / private / intra subnets, 1 NAT gateway, S3 gateway endpoint, flow logs), EKS with KMS-encrypted Secrets and a small Graviton "system" node group, the AWS side of Karpenter (roles, spot-interruption queue), Pod Identity roles for the EBS CSI driver, AWS Load Balancer Controller and External Secrets | Each session: `make aws-up` / `make aws-down` |
+| [bootstrap/](bootstrap/) | GitHub OIDC provider, CI roles `tasuki-github-plan` (read-only) and `tasuki-github-apply`, monthly budget alerts, and the [PostgreSQL backup bucket](#postgresql-backups) with its KMS key (both outlive the platform). The S3 state bucket is made by [scripts/create-state-bucket.sh](scripts/create-state-bucket.sh). | Once per account: `make aws-bootstrap` (again after this stack changes) |
+| [platform/](platform/) | VPC (3 AZs, public / private / intra subnets, 1 NAT gateway, S3 gateway endpoint, flow logs), EKS with KMS-encrypted Secrets and a small Graviton "system" node group, the AWS side of Karpenter (roles, spot-interruption queue), Pod Identity roles for the EBS CSI driver, AWS Load Balancer Controller, External Secrets and the orders-db backups | Each session: `make aws-up` / `make aws-down` |
 
 ```mermaid
 flowchart LR
@@ -21,6 +21,7 @@ flowchart LR
             planrole[tasuki-github-plan<br/>read-only]
             applyrole[tasuki-github-apply<br/>PowerUser + tasuki-* IAM]
             budget[budget alerts]
+            backups[(PostgreSQL backups<br/>S3 + KMS)]
         end
         state[(S3 state bucket)]
         subgraph platform[platform · per session]
@@ -34,6 +35,7 @@ flowchart LR
     apply -->|OIDC| applyrole -->|creates, destroys| platform
     platform -.->|state| state
     argocd -->|installs Karpenter, controllers, apps| eks
+    karp -.->|Pod Identity: orders-db WAL + base backups| backups
 ```
 
 ## Prerequisites
@@ -110,6 +112,35 @@ and wait for their nodes, then the EC2NodeClasses. The controllers doing the cle
 which is never deleted. [scripts/check-leftovers.sh](scripts/check-leftovers.sh) then lists anything
 billable still in the region and fails if it finds something.
 
+## PostgreSQL backups
+
+CloudNativePG archives the orders database's WAL continuously and takes base backups on a schedule, through the
+Barman Cloud plugin ([deploy/README.md](../deploy/README.md#backups-and-restore)). The bucket is in the
+**bootstrap** stack on purpose: `make aws-down` destroys the platform every session, and backups that die with the
+cluster are not backups.
+
+| Piece | Where | What |
+|---|---|---|
+| Bucket `tasuki-pg-backups-<account-id>` | [bootstrap/backups.tf](bootstrap/backups.tf) | Versioned, SSE-KMS with its own key (`alias/tasuki-pg-backups`, rotated yearly, bucket key on), public access blocked, ACLs off, TLS-only bucket policy, `force_destroy = false` |
+| Lifecycle | same | Objects expire per prefix: `tasuki-dev/` after 14 days, `tasuki-prod/` after 37 (the Barman retention of 7 and 30 days, plus a week); noncurrent versions after 7 days; incomplete multipart uploads after 1 day; expired delete markers removed |
+| Roles `tasuki-dev-orders-db-backup`, `tasuki-prod-orders-db-backup` | [platform/backups.tf](platform/backups.tf) | Pod Identity for ServiceAccount `orders-db` in `tasuki-<env>`: read, write and delete under `tasuki-<env>/` only, KMS through S3 only |
+| Roles `tasuki-dev-orders-db-restore`, `tasuki-prod-orders-db-restore` | same | Pod Identity for ServiceAccount `orders-db-restore` (the cluster a restore creates): read-only under `tasuki-<env>/` |
+| Session prefix | same, `terraform_data.backup_session` | When the platform was created, e.g. `20261014T0930Z`; outputs `backup_bucket` and `backup_session` go to Argo CD through the GitOps bridge |
+
+Objects land at `s3://tasuki-pg-backups-<account-id>/tasuki-<env>/<session>/orders-db/{base,wals}/`. The session
+level exists because CloudNativePG refuses to archive WAL into an archive that already holds another cluster's
+WAL, and every `make aws-up` creates the database anew. Each session therefore writes its own path, and the roles
+cover the whole environment prefix, so a later session can still restore an earlier one's backups.
+
+- **First time, or on an account bootstrapped before backups existed:** run `make aws-bootstrap` once more. Until
+  then `make aws-plan` / `aws-up` stop with an error from the `aws_s3_bucket` data source in `platform/backups.tf`.
+- **A new path within a session** (only needed if `orders-db` itself was re-created, so its WAL archive check
+  fails): `TF_CLI_ARGS_apply="-replace=terraform_data.backup_session" make aws-up`, then `make gitops-bootstrap`.
+- **Deleting the backups** is deliberate: empty the bucket (all versions) by hand, then remove it from
+  `bootstrap/backups.tf`. Terraform refuses to delete a bucket that still holds objects.
+- `make aws-down` deletes the namespaces before the database can archive its last WAL segment, so up to
+  `archive_timeout` (5 minutes) of the session's final writes are not in the bucket.
+
 ## Cost (approximate)
 
 **Approximate on-demand prices for ap-northeast-1, for orientation only. Prices change; `make infra-cost`
@@ -127,8 +158,9 @@ billable still in the region and fails if it finds something.
 | **Total for the base platform** | | **≈ $0.30/hour, ≈ $7/day** |
 
 Not included: Karpenter nodes for the workloads (spot first), load balancers the apps create, EBS volumes
-for PersistentVolumes, and data transfer. Destroyed, the platform costs nothing except a few cents for the
-state bucket. Left running for a whole month it would cost about $200, so the $100 monthly budget alert
+for PersistentVolumes, and data transfer. Destroyed, the platform costs nothing except what outlives it on
+purpose: a few cents for the state bucket, and for backups about $1/month for the KMS key plus S3 Standard
+storage (~$0.025/GB-month in Tokyo; dev-sized databases stay well under a dollar). Left running for a whole month it would cost about $200, so the $100 monthly budget alert
 (50 % and 80 % actual, 100 % forecast) fires first.
 
 ## Safety guards
@@ -144,6 +176,7 @@ state bucket. Left running for a whole month it would cost about $200, so the $1
 | Plans posted on public pull requests have the account ID and allowed CIDRs replaced; both are masked in logs | `.github/workflows/terraform.yml` |
 | Teardown removes controller-made resources, then fails loudly if anything billable is left; a budget alert backs it up | `scripts/`, `bootstrap/budget.tf` |
 | State: versioned, encrypted, TLS-only, private S3 bucket with S3-native locking | `scripts/create-state-bucket.sh` |
+| Backups: a bucket Terraform will not delete while it holds objects (`force_destroy = false`), versioned, KMS-encrypted, TLS-only; each environment's role reaches only its own prefix | `bootstrap/backups.tf`, `platform/backups.tf` |
 
 ## Checks
 
@@ -151,7 +184,9 @@ state bucket. Left running for a whole month it would cost about $200, so the $1
 for both stacks, tflint (with the AWS ruleset, [.tflint.hcl](.tflint.hcl)), trivy and checkov
 ([.checkov.yaml](.checkov.yaml)). Accepted findings are suppressed next to the code with the reason:
 the IP-restricted public API endpoint (trivy AWS-0040) and open node egress (AWS-0104) in
-`platform/eks.tf`; registry modules pinned by version rather than commit hash (checkov CKV_TF_1).
+`platform/eks.tf`; registry modules pinned by version rather than commit hash (checkov CKV_TF_1); for the backup
+bucket, no access-log bucket, no cross-region copy yet and no event notifications, and the written-out default key
+policy (`bootstrap/backups.tf`).
 
 ## Decisions (proposed, ADRs pending)
 
@@ -166,3 +201,5 @@ the IP-restricted public API endpoint (trivy AWS-0040) and open node egress (AWS
 - AZs pinned by zone ID (`apne1-az1/az2/az4`), not discovered by name.
 - Registry modules pinned to exact versions, not git commit hashes.
 - Ephemeral environment: created and destroyed per session, 7-day log retention, a $100 budget.
+- PostgreSQL backups in a bucket owned by the bootstrap stack (outlives the platform), encrypted with a customer
+  managed KMS key, one prefix and one IAM role per environment, a per-session path; no cross-region copy yet.

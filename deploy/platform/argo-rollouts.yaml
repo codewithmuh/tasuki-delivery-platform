@@ -1,0 +1,111 @@
+# Canary releases for the prod services, gated by their error budgets (docs/slo/error-budget-policy.md):
+#   argo-rollouts           the controller and its CRDs (Rollout, AnalysisTemplate, AnalysisRun, ...)
+#   argo-rollouts-analysis  the ClusterAnalysisTemplate "error-budget-gate", step 1 of every Rollout
+#   rollout-gate            tools/rollout-gate, which answers that step from the SLO budgets in Prometheus
+# The services render a Rollout instead of a Deployment when rollout.enabled is set (deploy/charts/service).
+# Progressive delivery: Argo Rollouts, replica-based canary, proposed (ADR pending).
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-rollouts
+  namespace: argocd
+  annotations:
+    # Its CRDs must exist before the services (wave 1) render Rollouts.
+    argocd.argoproj.io/sync-wave: "-5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    - repoURL: https://argoproj.github.io/argo-helm
+      chart: argo-rollouts
+      targetRevision: 2.43.7
+      helm:
+        releaseName: argo-rollouts
+        valueFiles:
+          - $values/deploy/platform/values/argo-rollouts.yaml
+    - repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+      targetRevision: main
+      ref: values
+  destination:
+    name: in-cluster
+    namespace: argo-rollouts
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # The Rollout CRD is larger than the 256 KiB annotation client-side apply needs.
+      - ServerSideApply=true
+    retry:
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 5m}
+---
+# Cluster-scoped, so one copy serves every namespace's Rollouts, and an app change in tasuki-* cannot edit it
+# (the tasuki AppProject allows no cluster-scoped objects but Namespaces).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-rollouts-analysis
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+    targetRevision: main
+    path: deploy/platform/manifests/argo-rollouts
+  destination:
+    name: in-cluster
+    namespace: argo-rollouts
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 5m}
+---
+# The gate runs once per cluster, next to the Prometheus it reads, so it lives in monitoring rather than in each
+# environment: SLOs exist only for tasuki-prod, and a gate per namespace would answer the same question twice.
+# Same chart as the services (runtime contract, hardening, NetworkPolicy); it ships with prod's release version
+# and replica count (overlays/prod/values/common.yaml), then its own values.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: rollout-gate
+  namespace: argocd
+  annotations:
+    # After Prometheus (-4), which it queries.
+    argocd.argoproj.io/sync-wave: "-3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+    targetRevision: main
+    path: deploy/charts/service
+    helm:
+      releaseName: rollout-gate
+      # Relative to the chart directory.
+      valueFiles:
+        - ../../apps/overlays/prod/values/common.yaml
+        - ../../platform/values/rollout-gate.yaml
+  destination:
+    name: in-cluster
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 5m}
