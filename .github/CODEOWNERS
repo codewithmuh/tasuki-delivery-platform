@@ -1,2 +1,18 @@
-# Every change needs a review from the owners. Replace with your team.
-* @codewithmuh
+# Every change needs a review from the owners. One owner today; the areas are listed so a team can split them.
+*                     @codewithmuh
+
+# Shared files: CI, release, the local stack
+/.github/             @codewithmuh
+/Makefile             @codewithmuh
+/compose.yaml         @codewithmuh
+
+/services/orders/     @codewithmuh
+/services/fleet/      @codewithmuh
+/services/routing/    @codewithmuh
+/services/simulator/  @codewithmuh
+/services/console/    @codewithmuh
+/contracts/           @codewithmuh
+/infra/               @codewithmuh
+/deploy/              @codewithmuh
+/observability/       @codewithmuh
+/tools/               @codewithmuh

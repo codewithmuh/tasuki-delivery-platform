@@ -23,11 +23,16 @@ dist/
 coverage.out
 /bin/
 
+# Node (services/console)
+node_modules/
+
 # Terraform
 .terraform/
 *.tfstate
 *.tfstate.*
 *.tfplan
+crash.log
+crash.*.log
 
 # Editors / OS
 .DS_Store

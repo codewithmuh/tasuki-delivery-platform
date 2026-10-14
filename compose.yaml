@@ -1,30 +1,327 @@
-# Local run of every service with production-like hardening: `make up`, then `make down`.
-# Settings come from your shell or a `.env` file (see .env.example); defaults below.
+# The whole Tasuki stack on one machine: `cp .env.example .env`, then `make up`; `make down` stops it.
+# Settings come from `.env` (see .env.example) or your shell. Secrets have no defaults: Compose stops
+# with "copy .env.example to .env" when one is missing.
+#
+# Ports are published on 127.0.0.1 only:
+#   orders 8000 · fleet-ingest 8081 · dispatch 8082 · tracking 8083 · fleet-state 8084
+#   console 8088 · simulator 8090 (profile sim) · routing 5000 (profile routing)
+#   PostgreSQL 5432 · Valkey 6379 · Kafka 9094 (for tools on the host; containers use kafka:9092)
+#
+# Optional parts (Compose profiles): `routing` (OSRM on Tokyo roads: the first build downloads ~500 MB
+# and takes 10–20 min with 4–6 GB of RAM) and `sim` (the city simulator). Start them with
+# `make routing-up` / `make sim-up`, or list them in COMPOSE_PROFILES. Without OSRM, dispatch and the
+# simulator fall back to straight-line distances.
 name: tasuki-delivery-platform
 
+# Production-like hardening for every Tasuki container: non-root (each image sets its own user),
+# read-only root filesystem with a writable /tmp, no capabilities, no privilege escalation.
 x-hardening: &hardening
   read_only: true
   cap_drop: [ALL]
   security_opt: ["no-new-privileges:true"]
   tmpfs: [/tmp]
   restart: unless-stopped
+  # The runtime contract drains for up to 20 s after SIGTERM; Docker's default of 10 s would cut it short.
+  stop_grace_period: 25s
+
+# Third-party data stores: non-root, no capabilities, but a writable root filesystem, because their
+# official images write configuration or sockets at start (local only; Kubernetes runs them through
+# operators with their own security contexts, see deploy/apps/base).
+x-datastore: &datastore
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+
+x-go-env: &go-env
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT:-20s}
+  KAFKA_BROKERS: kafka:9092
+
+# One image, four processes (API, outbox relay, dispatch consumer, migrations): one environment.
+x-orders-env: &orders-env
+  DATABASE_URL: postgres://orders:${ORDERS_DB_PASSWORD:?copy .env.example to .env}@orders-db:5432/orders
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?copy .env.example to .env}
+  DJANGO_ALLOWED_HOSTS: orders,localhost,127.0.0.1
+  ORDERS_FIELD_KEY: ${ORDERS_FIELD_KEY:?copy .env.example to .env}
+  COURIER_TOKEN_SECRET: ${COURIER_TOKEN_SECRET:?copy .env.example to .env}
+  TRACKING_TOKEN_SECRET: ${TRACKING_TOKEN_SECRET:?copy .env.example to .env}
+  ADMIN_TOKEN: ${ADMIN_TOKEN:?copy .env.example to .env}
+  KAFKA_BROKERS: kafka:9092
+  DISPATCH_URL: http://dispatch:8080
+  # tracking_url in order responses is the console page a customer opens, so it is the host port, not a service name.
+  TRACKING_PAGE_URL: http://localhost:8088
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+
+x-orders-build: &orders-build
+  context: ./services/orders
+  args: { APP_VERSION: local }
+
+# The relay and the consumer serve /healthz (loop heartbeat), /readyz and /metrics on 9100, not 8000.
+x-orders-worker-healthcheck: &orders-worker-healthcheck
+  test:
+    - CMD
+    - python
+    - -c
+    - "import sys, urllib.request; sys.exit(urllib.request.urlopen('http://127.0.0.1:9100/healthz', timeout=2).status != 200)"
+  interval: 30s
+  timeout: 3s
+  start_period: 10s
+  retries: 3
 
 services:
-  api-python:
-    <<: *hardening
-    build:
-      context: ./services/api-python
-      args: { APP_VERSION: local }
-    environment:
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-    ports: ["127.0.0.1:8000:8000"]
+  # ---- data stores ---------------------------------------------------------------------------------
 
-  api-go:
+  orders-db:
+    <<: *datastore
+    image: postgres:17.11-trixie
+    user: postgres # the image's own user (uid 999); the named volume inherits its ownership
+    environment:
+      POSTGRES_USER: orders
+      POSTGRES_PASSWORD: ${ORDERS_DB_PASSWORD:?copy .env.example to .env}
+      POSTGRES_DB: orders
+    volumes: [orders-db:/var/lib/postgresql/data]
+    ports: ["127.0.0.1:${ORDERS_DB_HOST_PORT:-5432}:5432"]
+    healthcheck:
+      test: ["CMD", "pg_isready", "--username", "orders", "--dbname", "orders"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Valkey (the BSD-licensed Redis fork, same protocol), as in the cluster (deploy/apps/base/redis.yaml).
+  # A cache rebuilt from Kafka, so no persistence and no volume.
+  redis:
+    <<: *datastore
+    image: valkey/valkey:9.0.6-alpine
+    user: "999:1000" # the image's valkey user
+    read_only: true # writes nothing: no RDB snapshots, no AOF
+    command: ["valkey-server", "--save", "", "--appendonly", "no", "--maxmemory", "200mb", "--maxmemory-policy", "noeviction"]
+    ports: ["127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"]
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Single-node Kafka in KRaft mode (no ZooKeeper), the same version Strimzi runs in the cluster.
+  kafka:
+    <<: *datastore
+    image: apache/kafka:4.3.1
+    environment:
+      CLUSTER_ID: 418F3dCfTLS9UCRnWPqoYQ # any base64 UUID; fixed so the data volume survives restarts
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # PLAINTEXT for containers (kafka:9092), HOST for tools on the host (localhost:9094).
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,HOST://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,HOST://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # Topics come from kafka-init only, so a typo in a topic name fails loudly.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+    volumes: [kafka-data:/var/lib/kafka/data]
+    ports: ["127.0.0.1:${KAFKA_HOST_PORT:-9094}:9094"]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 15s
+      start_period: 30s
+      retries: 10
+
+  # One-shot: the three topics of contracts/README.md (12 partitions; locations 24 h, the others 7 days).
+  # Safe to re-run: existing topics are kept and their retention is set again.
+  kafka-init:
+    <<: *datastore
+    image: apache/kafka:4.3.1
+    restart: "no"
+    depends_on:
+      kafka: { condition: service_healthy }
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        topic() {
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+            --topic "$$1" --partitions 12 --replication-factor 1 --config "retention.ms=$$2"
+          /opt/kafka/bin/kafka-configs.sh --bootstrap-server kafka:9092 --alter --entity-type topics \
+            --entity-name "$$1" --add-config "retention.ms=$$2"
+        }
+        topic courier.locations 86400000
+        topic orders.events 604800000
+        topic dispatch.events 604800000
+        echo "Topics:"
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list
+
+  # ---- orders (Python, services/orders) ------------------------------------------------------------
+
+  # One-shot, like the pre-deploy Job in Kubernetes: replicas never race to migrate.
+  orders-migrate:
+    <<: *hardening
+    build: *orders-build
+    image: tasuki/orders:local
+    restart: "no"
+    command: ["python", "manage.py", "migrate", "--noinput"]
+    environment: *orders-env
+    healthcheck: { disable: true }
+    depends_on:
+      orders-db: { condition: service_healthy }
+
+  orders:
+    <<: *hardening
+    build: *orders-build
+    image: tasuki/orders:local
+    environment: *orders-env
+    ports: ["127.0.0.1:8000:8000"]
+    depends_on:
+      orders-migrate: { condition: service_completed_successfully }
+
+  orders-relay:
+    <<: *hardening
+    build: *orders-build
+    image: tasuki/orders:local
+    command: ["python", "manage.py", "relay_outbox"]
+    environment: *orders-env
+    healthcheck: *orders-worker-healthcheck
+    depends_on:
+      orders-migrate: { condition: service_completed_successfully }
+      kafka-init: { condition: service_completed_successfully }
+
+  orders-consumer:
+    <<: *hardening
+    build: *orders-build
+    image: tasuki/orders:local
+    command: ["python", "manage.py", "consume_dispatch_events"]
+    environment: *orders-env
+    healthcheck: *orders-worker-healthcheck
+    depends_on:
+      orders-migrate: { condition: service_completed_successfully }
+      kafka-init: { condition: service_completed_successfully }
+
+  # ---- location path (Go, services/fleet: one Dockerfile, one image per binary) ----------------------
+
+  fleet-ingest:
     <<: *hardening
     build:
-      context: ./services/api-go
+      context: ./services/fleet
+      args: { SERVICE: fleet-ingest, APP_VERSION: local }
+    image: tasuki/fleet-ingest:local
+    environment:
+      <<: *go-env
+      COURIER_TOKEN_SECRET: ${COURIER_TOKEN_SECRET:?copy .env.example to .env}
+    ports: ["127.0.0.1:8081:8080"]
+    depends_on:
+      kafka-init: { condition: service_completed_successfully }
+
+  fleet-state:
+    <<: *hardening
+    build:
+      context: ./services/fleet
+      args: { SERVICE: fleet-state, APP_VERSION: local }
+    image: tasuki/fleet-state:local
+    environment:
+      <<: *go-env
+      REDIS_URL: redis://redis:6379/0
+      HISTORY_DIR: /tmp/fleet-history # on the tmpfs: history is best effort and local runs don't keep it
+    ports: ["127.0.0.1:8084:8080"]
+    depends_on:
+      kafka-init: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+
+  tracking:
+    <<: *hardening
+    build:
+      context: ./services/fleet
+      args: { SERVICE: tracking, APP_VERSION: local }
+    image: tasuki/tracking:local
+    environment:
+      <<: *go-env
+      TRACKING_TOKEN_SECRET: ${TRACKING_TOKEN_SECRET:?copy .env.example to .env}
+      # Local only: the console's fleet stream needs no token (production uses FLEET_STREAM_TOKEN).
+      FLEET_STREAM_PUBLIC: ${FLEET_STREAM_PUBLIC:-true}
+      FLEET_STREAM_TOKEN: ${FLEET_STREAM_TOKEN:-}
+      # The console (http://localhost:8088) reads the streams from another origin, so CORS is needed here.
+      TRACKING_CORS_ORIGINS: http://localhost:8088,http://127.0.0.1:8088
+      TRACKING_MIN_INTERVAL: ${TRACKING_MIN_INTERVAL:-0s}
+    ports: ["127.0.0.1:8083:8080"]
+    depends_on:
+      kafka-init: { condition: service_completed_successfully }
+
+  dispatch:
+    <<: *hardening
+    build:
+      context: ./services/fleet
+      args: { SERVICE: dispatch, APP_VERSION: local }
+    image: tasuki/dispatch:local
+    environment:
+      <<: *go-env
+      KAFKA_GROUP: dispatch
+      REDIS_URL: redis://redis:6379/0
+      ROUTING_URL: http://routing:5000 # unreachable without the routing profile: straight-line fallback
+      COURIER_TOKEN_SECRET: ${COURIER_TOKEN_SECRET:?copy .env.example to .env}
+    ports: ["127.0.0.1:8082:8080"]
+    depends_on:
+      kafka-init: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      routing: { condition: service_healthy, required: false }
+
+  # ---- console (React + MapLibre on unprivileged nginx, services/console) -----------------------------
+
+  console:
+    <<: *hardening
+    build: ./services/console
+    image: tasuki/console:local
+    environment:
+      # The browser opens the tracking streams on the host port (CORS allowed by tracking above).
+      CONSOLE_TRACKING_BASE_URL: ${CONSOLE_TRACKING_BASE_URL:-http://localhost:8083}
+    ports: ["127.0.0.1:8088:8080"]
+
+  # ---- optional: OSRM on Tokyo roads (services/routing) -----------------------------------------------
+
+  routing:
+    <<: *hardening
+    profiles: [routing]
+    build: ./services/routing
+    image: tasuki/routing:local # the same tag as `make routing-build`
+    ports: ["127.0.0.1:5000:5000"]
+    stop_grace_period: 10s
+
+  # ---- optional: the city simulator (services/simulator) ----------------------------------------------
+
+  # Seeds merchants and couriers through the admin API, then plays customers and couriers through the
+  # public APIs. Its state file (seeded keys and tokens) lives on the tmpfs, so a new container seeds again.
+  simulator:
+    <<: *hardening
+    profiles: [sim]
+    build:
+      context: ./services/simulator
       args: { APP_VERSION: local }
+    image: tasuki/simulator:local
+    command: ["run", "-scenario", "${SIM_SCENARIO:-small}"]
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT:-20s}
-    ports: ["127.0.0.1:8080:8080"]
+      ORDERS_URL: http://orders:8000
+      FLEET_INGEST_URL: http://fleet-ingest:8080
+      DISPATCH_URL: http://dispatch:8080
+      ROUTING_URL: http://routing:5000 # unreachable without the routing profile: couriers ride straight lines
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?copy .env.example to .env}
+      DRAIN_TIMEOUT: 15s
+    # Couriers finish the delivery in hand (DRAIN_TIMEOUT), then the HTTP server drains (20 s).
+    stop_grace_period: 40s
+    ports: ["127.0.0.1:8090:8080"]
+    depends_on:
+      orders: { condition: service_healthy }
+      fleet-ingest: { condition: service_healthy }
+      dispatch: { condition: service_healthy }
+      routing: { condition: service_healthy, required: false }
+
+volumes:
+  orders-db:
+  kafka-data:
