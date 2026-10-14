@@ -1,0 +1,70 @@
+# AWS Load Balancer Controller: turns Ingress objects into ALBs. AWS side (IAM via Pod Identity):
+# infra/platform/pod-identity.tf. It needs the VPC ID as a value because pods cannot read it from
+# instance metadata (IMDS hop limit 1), so the ApplicationSet takes it from the cluster Secret.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: aws-load-balancer-controller
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-5"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            tasuki.io/platform: "true"
+  template:
+    metadata:
+      name: aws-load-balancer-controller
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: platform
+      sources:
+        - repoURL: https://aws.github.io/eks-charts
+          chart: aws-load-balancer-controller
+          targetRevision: 3.6.0
+          helm:
+            releaseName: aws-load-balancer-controller
+            valueFiles:
+              - $values/deploy/platform/values/aws-load-balancer-controller.yaml
+            valuesObject:
+              clusterName: "{{ .metadata.annotations.cluster_name }}"
+              region: "{{ .metadata.annotations.region }}"
+              vpcId: "{{ .metadata.annotations.vpc_id }}"
+        - repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+          targetRevision: main
+          ref: values
+      destination:
+        name: "{{ .name }}"
+        # kube-system, like the Pod Identity association: removing app namespaces never removes the
+        # controller before it has deleted their load balancers.
+        namespace: kube-system
+      # The chart generates a fresh webhook CA on every render (Helm's lookup() does not work under
+      # Argo CD). Keep the first one: ignore the generated fields and do not overwrite them on sync.
+      ignoreDifferences:
+        - group: ""
+          kind: Secret
+          name: aws-load-balancer-tls
+          jsonPointers: [/data]
+        - group: admissionregistration.k8s.io
+          kind: MutatingWebhookConfiguration
+          name: aws-load-balancer-webhook
+          jqPathExpressions: [".webhooks[]?.clientConfig.caBundle"]
+        - group: admissionregistration.k8s.io
+          kind: ValidatingWebhookConfiguration
+          name: aws-load-balancer-webhook
+          jqPathExpressions: [".webhooks[]?.clientConfig.caBundle"]
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - ServerSideApply=true
+          - RespectIgnoreDifferences=true
+        retry:
+          limit: 10
+          backoff: {duration: 10s, factor: 2, maxDuration: 5m}

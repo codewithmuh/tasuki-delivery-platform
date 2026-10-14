@@ -1,0 +1,54 @@
+{{- include "service.validate" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "service.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "service.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicas }}
+  {{- end }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      {{- include "service.serverSelectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Never drop below the desired count during a rollout; add one new pod at a time instead.
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "service.labels" . | nindent 8 }}
+        app.kubernetes.io/component: server
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- include "service.podSpec" (dict "root" . "long" true) | nindent 6 }}
+      {{- if .Values.topologySpread.enabled }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: {{ .Values.topologySpread.zoneWhenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              {{- include "service.serverSelectorLabels" . | nindent 14 }}
+          # Count only pods of the same ReplicaSet, so a rollout is spread on its own terms.
+          matchLabelKeys: [pod-template-hash]
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: {{ .Values.topologySpread.hostWhenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              {{- include "service.serverSelectorLabels" . | nindent 14 }}
+          matchLabelKeys: [pod-template-hash]
+      {{- end }}

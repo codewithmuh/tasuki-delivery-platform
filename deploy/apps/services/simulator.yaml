@@ -1,0 +1,49 @@
+# simulator (services/simulator): the city. Merchants, customers and couriers driving the public APIs.
+# Scaled to 0: start a run by setting replicas: 1 (and the scenario) in the environment's values file.
+image:
+  repository: ghcr.io/codewithmuh/tasuki-delivery-platform/simulator
+args: [run, -scenario, small]
+port: 8080
+replicas: 0
+
+env:
+  LOG_LEVEL: info
+  ORDERS_URL: http://orders
+  FLEET_INGEST_URL: http://fleet-ingest
+  DISPATCH_URL: http://dispatch
+  ROUTING_URL: http://routing
+  SHUTDOWN_TIMEOUT: 20s
+  DRAIN_TIMEOUT: 60s
+secretEnv:
+  ADMIN_TOKEN: {secret: tasuki-app, key: ADMIN_TOKEN}
+
+# On SIGTERM it finishes in-flight deliveries (DRAIN_TIMEOUT 60 s), then drains HTTP (20 s).
+shutdownDrainSeconds: 80
+terminationGracePeriodSeconds: 90
+
+resources:
+  requests: {cpu: 50m, memory: 64Mi}
+  limits: {memory: 256Mi}
+
+networkPolicy:
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: orders
+      ports:
+        - port: 8000
+    - to:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: [fleet-ingest, dispatch, tracking]
+      ports:
+        - port: 8080
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: routing
+      ports:
+        - port: 5000

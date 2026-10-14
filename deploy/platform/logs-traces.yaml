@@ -1,0 +1,73 @@
+# Logs (Loki) and traces (Tempo), both single-pod for dev. The collector feeds them (opentelemetry-collector.yaml).
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: loki
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    - repoURL: https://grafana-community.github.io/helm-charts
+      chart: loki
+      targetRevision: 18.15.1
+      helm:
+        releaseName: loki
+        valueFiles:
+          - $values/deploy/platform/values/loki.yaml
+    - repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+      targetRevision: main
+      ref: values
+  destination:
+    name: in-cluster
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 5m}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tempo
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    - repoURL: https://grafana-community.github.io/helm-charts
+      chart: tempo
+      targetRevision: 3.1.0
+      helm:
+        releaseName: tempo
+        valueFiles:
+          - $values/deploy/platform/values/tempo.yaml
+    - repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+      targetRevision: main
+      ref: values
+  destination:
+    name: in-cluster
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 5m}

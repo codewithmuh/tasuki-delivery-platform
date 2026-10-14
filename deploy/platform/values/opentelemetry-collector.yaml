@@ -1,0 +1,75 @@
+# OpenTelemetry Collector (open-telemetry/opentelemetry-helm-charts), one per node (DaemonSet):
+#   - OTLP in from every service (Service otel-collector.monitoring, node-local: internalTrafficPolicy Local)
+#   - container logs from the node's /var/log/pods (filelog)
+#   - Kubernetes metadata on everything (k8sattributes)
+#   - out: traces -> Tempo (OTLP gRPC), metrics -> Prometheus (OTLP receiver), logs -> Loki (OTLP)
+mode: daemonset
+fullnameOverride: otel-collector
+
+image:
+  # The Kubernetes distribution: has the filelog receiver and the k8sattributes processor.
+  repository: otel/opentelemetry-collector-k8s
+
+presets:
+  logsCollection:
+    enabled: true
+  kubernetesAttributes:
+    enabled: true
+
+# Collect logs from every node, including the tainted system nodes (Argo CD, Karpenter).
+tolerations:
+  - operator: Exists
+
+resources:
+  requests: {cpu: 50m, memory: 128Mi}
+  limits: {memory: 256Mi}
+
+service:
+  enabled: true
+  internalTrafficPolicy: Local
+
+# Only OTLP is exposed; no Jaeger or Zipkin.
+ports:
+  jaeger-compact:
+    enabled: false
+  jaeger-thrift:
+    enabled: false
+  jaeger-grpc:
+    enabled: false
+  zipkin:
+    enabled: false
+
+# Component names are the collector's current ones (otlp_grpc, otlp_http, k8s_attributes, file_log);
+# the chart renames the presets' older names to match.
+config:
+  receivers:
+    jaeger: null
+    zipkin: null
+    prometheus: null
+  exporters:
+    otlp_grpc/tempo:
+      endpoint: tempo.monitoring:4317
+      tls:
+        insecure: true
+    otlp_http/prometheus:
+      endpoint: http://kube-prometheus-stack-prometheus.monitoring:9090/api/v1/otlp
+    otlp_http/loki:
+      endpoint: http://loki.monitoring:3100/otlp
+  service:
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [k8s_attributes, memory_limiter, batch]
+        exporters: [otlp_grpc/tempo]
+      metrics:
+        receivers: [otlp]
+        processors: [k8s_attributes, memory_limiter, batch]
+        exporters: [otlp_http/prometheus]
+      logs:
+        receivers: [otlp, file_log]
+        processors: [k8s_attributes, memory_limiter, batch]
+        exporters: [otlp_http/loki]
+
+# The collector's own metrics (port 8888).
+serviceMonitor:
+  enabled: true

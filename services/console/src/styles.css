@@ -1,0 +1,366 @@
+/* Plain CSS with variables; light and dark follow the OS setting. Text colours meet WCAG AA. */
+:root {
+  color-scheme: light dark;
+  --bg: #f4f6f8;
+  --surface: #ffffff;
+  --text: #1b1f24;
+  --muted: #56606b;
+  --border: #d6dbe1;
+  --focus: #0b5cad;
+  --ok-bg: #e2f3e8;
+  --ok-fg: #14532d;
+  --warn-bg: #fcefd2;
+  --warn-fg: #6e4200;
+  --bad-bg: #fce2de;
+  --bad-fg: #861a10;
+  --neutral-bg: #eaedf1;
+  --neutral-fg: #36404b;
+  --icon-stroke: #ffffff;
+  --shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 6px 20px rgb(0 0 0 / 8%);
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    'Hiragino Sans',
+    'Noto Sans JP',
+    'Yu Gothic UI',
+    sans-serif;
+  line-height: 1.45;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1216;
+    --surface: #171b21;
+    --text: #e8ebef;
+    --muted: #a3acb7;
+    --border: #2c333c;
+    --focus: #7cb8ff;
+    --ok-bg: #12321f;
+    --ok-fg: #b5ebc6;
+    --warn-bg: #3b2b06;
+    --warn-fg: #ffd88a;
+    --bad-bg: #3f1511;
+    --bad-fg: #ffc4bc;
+    --neutral-bg: #242a32;
+    --neutral-fg: #d0d6dd;
+    --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 6px 20px rgb(0 0 0 / 35%);
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+h1 {
+  font-size: 1.25rem;
+  margin: 0;
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--focus);
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.note {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.map {
+  width: 100%;
+  height: 100%;
+  color: var(--text);
+}
+
+/* ---- badges: tone is shown by colour, a symbol and the words ---- */
+.status-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.badge-symbol {
+  font-size: 0.7em;
+}
+
+.badge-ok {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+}
+
+.badge-warn {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+
+.badge-bad {
+  background: var(--bad-bg);
+  color: var(--bad-fg);
+}
+
+.badge-neutral {
+  background: var(--neutral-bg);
+  color: var(--neutral-fg);
+}
+
+/* ---- ops live map ---- */
+.ops {
+  position: relative;
+  height: 100dvh;
+}
+
+.ops .map {
+  position: absolute;
+  inset: 0;
+}
+
+.panel {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  width: 300px;
+  max-height: calc(100% - 32px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+
+.panel-header p {
+  font-size: 0.875rem;
+}
+
+.field-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+select {
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 10px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.online-count {
+  font-size: 2rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.legend {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legend-count {
+  margin-left: auto;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.status-icon {
+  flex: none;
+}
+
+@media (max-width: 640px) {
+  .panel {
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-height: 48dvh;
+    padding: 12px;
+  }
+}
+
+/* ---- customer tracking page ---- */
+.track {
+  display: flex;
+  flex-direction: column;
+  max-width: 720px;
+  min-height: 100dvh;
+  margin: 0 auto;
+}
+
+.track-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+}
+
+.brand {
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.lang-toggle {
+  min-height: 40px;
+  padding: 6px 16px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.track-map {
+  position: relative;
+  height: 45dvh;
+  min-height: 260px;
+  margin: 0 16px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.track-map .map {
+  position: absolute;
+  inset: 0;
+}
+
+.map-overlay {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 16px;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.card h1 {
+  font-size: 1.375rem;
+}
+
+.message {
+  max-width: 520px;
+  margin: 15vh auto;
+}
+
+.eta {
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.steps {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.step-mark {
+  width: 1.5em;
+  text-align: center;
+}
+
+.step-done .step-mark {
+  color: var(--ok-fg);
+}
+
+.step-current {
+  font-weight: 700;
+}
+
+.step-todo {
+  color: var(--muted);
+}
+
+.warning {
+  padding: 8px 12px;
+  color: var(--warn-fg);
+  background: var(--warn-bg);
+  border-radius: 8px;
+}

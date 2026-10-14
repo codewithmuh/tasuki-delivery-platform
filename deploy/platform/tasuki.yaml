@@ -1,0 +1,122 @@
+# Tasuki itself, in two environments (namespaces tasuki-dev and tasuki-prod on one cluster; ADR 0016).
+#   Kustomize: deploy/apps/overlays/<env>   what exists once per namespace (namespace, quota, network
+#                                           policies, secrets, Kafka, PostgreSQL, Redis)
+#   Helm:      deploy/charts/service        what exists once per service (Deployment, Service, ...),
+#                                           with values from deploy/apps/
+---
+# The environments come first and must be Healthy (Kafka Ready, PostgreSQL primary up, secrets synced)
+# before the services start. No resources-finalizer on purpose: deleting these Applications must never
+# delete the databases with them.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tasuki-dev
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: tasuki
+  source:
+    repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+    targetRevision: main
+    path: deploy/apps/overlays/dev
+  destination:
+    name: in-cluster
+    namespace: tasuki-dev
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 5m}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tasuki-prod
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: tasuki
+  source:
+    repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+    targetRevision: main
+    path: deploy/apps/overlays/prod
+  destination:
+    name: in-cluster
+    namespace: tasuki-prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 5m}
+---
+# One Application per (service, environment): orders-dev, orders-prod, fleet-ingest-dev, ...
+# Values, lowest to highest precedence:
+#   1. deploy/charts/service/values.yaml                 chart defaults (the runtime contract)
+#   2. deploy/apps/overlays/<env>/values/common.yaml     environment-wide (image tag, replicas)
+#   3. deploy/apps/services/<service>.yaml               what the service is (image, port, env, network)
+#   4. deploy/apps/overlays/<env>/values/<service>.yaml  this service in this environment (optional)
+# Adding a service: a values file in deploy/apps/services/ and one line in the list below.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: tasuki-services
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - matrix:
+        generators:
+          - list:
+              elements:
+                - env: dev
+                - env: prod
+          - list:
+              elements:
+                - service: orders
+                - service: orders-outbox-relay
+                - service: orders-dispatch-consumer
+                - service: fleet-ingest
+                - service: fleet-state
+                - service: tracking
+                - service: dispatch
+                - service: routing
+                - service: simulator
+  template:
+    metadata:
+      name: "{{ .service }}-{{ .env }}"
+      labels:
+        tasuki.io/environment: "{{ .env }}"
+    spec:
+      project: tasuki
+      source:
+        repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+        targetRevision: main
+        path: deploy/charts/service
+        helm:
+          releaseName: "{{ .service }}"
+          # Paths are relative to the chart. A missing file is skipped (only 4 is optional; `make deploy-lint`
+          # checks that 2 and 3 exist for every element).
+          valueFiles:
+            - ../../apps/overlays/{{ .env }}/values/common.yaml
+            - ../../apps/services/{{ .service }}.yaml
+            - ../../apps/overlays/{{ .env }}/values/{{ .service }}.yaml
+          ignoreMissingValueFiles: true
+      destination:
+        name: in-cluster
+        namespace: tasuki-{{ .env }}
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        retry:
+          limit: 10
+          backoff: {duration: 10s, factor: 2, maxDuration: 5m}

@@ -1,0 +1,89 @@
+name: infra-apply
+
+# Creates or destroys the platform in AWS. Started by hand only. Each run waits in the aws-tokyo
+# environment until a reviewer approves it, and only then can it assume the apply role.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "up: create or update the platform. down: delete it and check that nothing billable is left."
+        type: choice
+        options: [up, down]
+        required: true
+
+# Least privilege by default; the job asks only for what it needs.
+permissions:
+  contents: read
+
+# One run at a time, and a running one is never cancelled: that can leave the state locked or half-applied.
+concurrency:
+  group: infra-apply
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash # an explicit shell adds -o pipefail
+
+env:
+  TERRAFORM_VERSION: "1.16.5"
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+jobs:
+  apply:
+    name: Platform ${{ inputs.action }}
+    # Only from main. The environment's deployment-branch rule enforces the same (infra/README.md).
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04 # pinned: upgrade deliberately, not when GitHub moves "latest"
+    environment: aws-tokyo # waits for a required reviewer; the apply role trusts only this environment
+    timeout-minutes: 100 # below the role's 2-hour session, so credentials never expire mid-run
+    permissions:
+      contents: read
+      id-token: write # OIDC token for the apply role; no AWS keys are stored in GitHub
+    env:
+      TASUKI_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }} # the scripts' account guard
+      TF_VAR_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+      TF_VAR_api_allowed_cidrs: ${{ vars.API_ALLOWED_CIDRS }}
+      TF_VAR_admin_principal_arns: ${{ vars.CLUSTER_ADMIN_ARNS }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+    steps:
+      # The repository is public, so its logs are too. Variables are not masked like secrets are.
+      - name: Hide the account ID and allowed IPs in the log
+        run: |
+          echo "::add-mask::${TF_VAR_account_id}"
+          for cidr in $(jq -r '.[]' <<<"${TF_VAR_api_allowed_cidrs}"); do
+            echo "::add-mask::${cidr}"
+          done
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
+          aws-region: ap-northeast-1
+          role-duration-seconds: 7200 # creating or destroying EKS takes 15-20 minutes each
+          mask-aws-account-id: true
+      - name: Init
+        run: terraform -chdir=infra/platform init -backend-config="bucket=${TF_STATE_BUCKET}"
+
+      # up: the change was reviewed as the plan comment on its pull request; approving this run
+      # decides when it is applied.
+      - name: Apply
+        if: inputs.action == 'up'
+        run: terraform -chdir=infra/platform apply -auto-approve -lock-timeout=5m
+
+      # down: the same three steps as `make aws-down`. The runner's IP is not in the API allow-list,
+      # so pre-destroy.sh adds it before it runs kubectl (the cluster is deleted right after).
+      - name: Delete what Kubernetes created in AWS (load balancers, volumes, Karpenter nodes)
+        if: inputs.action == 'down'
+        run: infra/scripts/pre-destroy.sh
+      - name: Destroy
+        if: inputs.action == 'down'
+        run: terraform -chdir=infra/platform destroy -auto-approve -lock-timeout=5m
+      - name: Check that nothing billable is left
+        if: inputs.action == 'down'
+        run: infra/scripts/check-leftovers.sh

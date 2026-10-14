@@ -1,0 +1,138 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: good-tag
+  namespace: tasuki-dev
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+    - name: app
+      image: ghcr.io/codewithmuh/tasuki-delivery-platform/orders:0.1.0
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: good-digest
+  namespace: monitoring
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+    - name: app
+      image: quay.io/prometheus/prometheus@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bad-latest
+  namespace: tasuki-dev
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+    - name: app
+      image: ghcr.io/codewithmuh/tasuki-delivery-platform/orders:latest
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bad-untagged
+  namespace: monitoring
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+    - name: app
+      image: docker.io/valkey/valkey
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bad-init-container
+  namespace: tasuki-dev
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    seccompProfile: {type: RuntimeDefault}
+  initContainers:
+    - name: init
+      image: busybox
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: {drop: [ALL]}
+  containers:
+    - name: app
+      image: ghcr.io/codewithmuh/tasuki-delivery-platform/orders:0.1.0
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: skipped-system-namespace
+  namespace: kube-system
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+    - name: app
+      image: registry.k8s.io/pause:latest
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: {drop: [ALL]}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bad-deployment
+  namespace: tasuki-dev
+spec:
+  selector:
+    matchLabels: {app: x}
+  template:
+    metadata:
+      labels: {app: x}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: app
+          image: ghcr.io/codewithmuh/tasuki-delivery-platform/orders:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}

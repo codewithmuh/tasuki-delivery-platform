@@ -1,0 +1,64 @@
+# SLOs for the orders service (docs/design.md §9). Rules: `make slo-generate` → ../generated/orders.yaml.
+#
+# SLI inputs (runtime contract, docs/architecture.md): `http_requests_total{method,route,status}` and the
+# `http_request_duration_seconds` histogram, plus the `namespace` and `service` labels that the Prometheus
+# scrape adds. Only production (namespace tasuki-prod) has SLOs; tasuki-dev shares the cluster and Prometheus.
+#
+# Two guards in every SLI (see ../README.md, "No traffic, no NaN"):
+#   - `or vector(0)` on the error side: no 5xx series yet means zero errors, not "no data".
+#   - `> 0` on the total side: a 5-minute window with no requests records nothing instead of NaN (0/0),
+#     so quiet nights neither spend nor poison the 28-day budget.
+version: "prometheus/v1"
+service: "orders"
+slos:
+  - name: "availability"
+    objective: 99.9
+    description: "Share of POST /v1/quotes and POST /v1/orders requests that do not return 5xx (28 days)."
+    sli:
+      events:
+        error_query: |
+          sum(rate(http_requests_total{namespace="tasuki-prod",service="orders",method="POST",route=~"/v1/quotes|/v1/orders",status=~"5.."}[{{.window}}]))
+          or vector(0)
+        total_query: |
+          sum(rate(http_requests_total{namespace="tasuki-prod",service="orders",method="POST",route=~"/v1/quotes|/v1/orders"}[{{.window}}]))
+          > 0
+    alerting:
+      name: OrdersAvailabilityBudgetBurn
+      labels:
+        category: availability
+      annotations:
+        description: "Merchants are getting 5xx from quotes or order creation faster than the 99.9 % SLO allows."
+        runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-orders-availability.md"
+      page_alert:
+        labels:
+          severity: page
+      ticket_alert:
+        labels:
+          severity: ticket
+
+  - name: "latency"
+    objective: 95
+    description: "Share of POST /v1/orders requests served in under 300 ms (28 days)."
+    sli:
+      events:
+        # Needs a 0.3 s bucket in the orders latency histogram (the client libraries' default buckets have none).
+        error_query: |
+          sum(rate(http_request_duration_seconds_count{namespace="tasuki-prod",service="orders",method="POST",route="/v1/orders"}[{{.window}}]))
+          -
+          sum(rate(http_request_duration_seconds_bucket{namespace="tasuki-prod",service="orders",method="POST",route="/v1/orders",le="0.3"}[{{.window}}]))
+        total_query: |
+          sum(rate(http_request_duration_seconds_count{namespace="tasuki-prod",service="orders",method="POST",route="/v1/orders"}[{{.window}}]))
+          > 0
+    alerting:
+      name: OrdersLatencyBudgetBurn
+      labels:
+        category: latency
+      annotations:
+        description: "Too many order creations take 300 ms or longer for the 95 % SLO."
+        runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-orders-latency.md"
+      page_alert:
+        labels:
+          severity: page
+      ticket_alert:
+        labels:
+          severity: ticket

@@ -1,0 +1,49 @@
+# dispatch (services/fleet, cmd/dispatch; P1 greedy matching): offers to couriers, ETAs for quotes.
+# Replicas share the work through the consumer group. Kubernetes API access (Lease-based ward ownership)
+# arrives with batched dispatch in P3.
+image:
+  repository: ghcr.io/codewithmuh/tasuki-delivery-platform/dispatch
+port: 8080
+
+env:
+  LOG_LEVEL: info
+  SHUTDOWN_TIMEOUT: 20s
+  KAFKA_BROKERS: tasuki-kafka-bootstrap:9092
+  KAFKA_GROUP: dispatch
+  REDIS_URL: redis://redis:6379/0
+  ROUTING_URL: http://routing
+secretEnv:
+  COURIER_TOKEN_SECRET: {secret: tasuki-app, key: COURIER_TOKEN_SECRET}
+
+resources:
+  requests: {cpu: 50m, memory: 64Mi}
+  limits: {memory: 128Mi}
+
+networkPolicy:
+  allowFrom:
+    # orders asks for ETAs; couriers (the simulator) stream and answer offers.
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: orders
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: simulator
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              strimzi.io/cluster: tasuki
+      ports:
+        - port: 9092
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - port: 6379
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: routing
+      ports:
+        - port: 5000

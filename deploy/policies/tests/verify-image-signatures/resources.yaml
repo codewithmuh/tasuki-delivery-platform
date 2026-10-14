@@ -1,0 +1,19 @@
+# Offline cases only: a real signature check needs GHCR and Sigstore, which unit tests must not depend on.
+# The positive/negative path is checked against the cluster's PolicyReports (see deploy/README.md).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: third-party-image
+  namespace: tasuki-dev
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+    - name: cache
+      image: docker.io/valkey/valkey:9.0.6-alpine
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: {drop: [ALL]}

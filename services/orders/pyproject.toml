@@ -1,0 +1,97 @@
+[project]
+name = "tasuki-orders"
+version = "0.1.0"
+description = "Tasuki orders service: tenants, quotes, orders, idempotency and the transactional outbox."
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+license = "MIT"
+dependencies = [
+  "django>=5.2,<6",              # 5.2 is the LTS line (security fixes until April 2028)
+  "djangorestframework>=3.16",
+  "drf-spectacular>=0.28",
+  "dj-database-url>=3.0",
+  "psycopg[binary]>=3.2",
+  "gunicorn>=23",
+  "prometheus-client>=0.22",
+  "python-ulid>=3.0",
+  "cryptography>=45",
+  "pyjwt>=2.10",
+  "httpx>=0.28",
+  "confluent-kafka>=2.11",
+]
+
+[dependency-groups]
+dev = [
+  "django-stubs[compatible-mypy]>=5.2,<6",
+  "djangorestframework-stubs>=3.16",
+  "jsonschema>=4.25",
+  "rfc3339-validator>=0.1.4",
+  "types-jsonschema>=4.25",
+  "mypy>=1.18",
+  "pytest>=8.4",
+  "pytest-cov>=7.0",
+  "pytest-django>=4.11",
+  "respx>=0.22",
+  "ruff>=0.17",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+extend-exclude = ["src/*/migrations"]
+
+[tool.ruff.lint]
+select = [
+  "E", "W", "F",   # pycodestyle + pyflakes
+  "I",             # import sorting
+  "B",             # bugbear
+  "UP",            # pyupgrade
+  "SIM",           # simplify
+  "S",             # bandit (security)
+  "N",             # naming
+  "PT",            # pytest style
+  "ASYNC",         # async pitfalls
+  "DJ",            # Django pitfalls
+  "RUF",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]  # asserts are how pytest works; tests use fake secrets
+"src/*/models.py" = ["RUF012"]  # Django declares Meta options (indexes, constraints) as class-level lists
+
+[tool.mypy]
+strict = true
+mypy_path = "src:."
+packages = ["config", "core", "accounts", "orders", "messaging"]
+plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
+
+[[tool.mypy.overrides]]
+module = ["*.migrations.*"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+# drf-spectacular's extension base class registers subclasses in an untyped __init_subclass__.
+module = ["accounts.schema"]
+disallow_untyped_calls = false
+
+[tool.django-stubs]
+# The real settings refuse to load without secrets; the test settings provide fake ones.
+django_settings_module = "tests.settings"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "tests.settings"
+pythonpath = ["src", "."]
+testpaths = ["tests"]
+addopts = "-q --cov=src --cov-report=term-missing --cov-fail-under=80"
+markers = [
+  "postgres: needs PostgreSQL semantics (row locks, SKIP LOCKED, blocking unique inserts); skipped on SQLite",
+]
+filterwarnings = ["error::RuntimeWarning"]
+
+[tool.coverage.run]
+branch = true
+omit = ["src/*/migrations/*", "src/config/wsgi.py", "src/config/gunicorn.py"]

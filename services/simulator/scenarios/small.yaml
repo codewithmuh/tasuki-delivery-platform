@@ -1,0 +1,44 @@
+# A laptop-sized city for local development and demos: two wards, 50 couriers, about
+# 2 orders a minute at the lunch peak. Couriers move 10× faster than real time so a whole
+# delivery plays out on the map in a few minutes.
+name: small
+description: Shibuya and Shinjuku, 50 couriers, 10× courier speed for demos.
+seed: 42
+duration: 0s
+
+clock:
+  start: "11:00" # always start just before lunch
+  speedup: 10
+
+wards: [shibuya, shinjuku]
+ward_radius_m: 1500
+merchants: 2
+stores_per_ward: 3
+
+couriers:
+  count: 50
+  scooter_share: 0.3
+  shifts:
+    - { start: "00:00", end: "24:00", share: 1 } # everyone works all day
+  accept:
+    probability: 0.95
+    halving_distance_m: 2000
+  think_time: { min: 1s, max: 4s }
+
+demand:
+  curve:
+    - { at: "00:00", per_hour: 10 }
+    - { at: "07:00", per_hour: 10 }
+    - { at: "11:30", per_hour: 120 } # lunch
+    - { at: "13:30", per_hour: 120 }
+    - { at: "15:00", per_hour: 40 }
+    - { at: "18:00", per_hour: 110 } # dinner
+    - { at: "20:30", per_hour: 110 }
+    - { at: "22:00", per_hour: 20 }
+  prep_time: { min: 5m, max: 15m }
+  max_in_flight: 50
+
+gps:
+  moving_interval: 4s
+  idle_interval: 15s
+  noise_m: 5

@@ -1,0 +1,95 @@
+# Argo CD (argo-helm chart "argo-cd"). Used twice, with the same chart version:
+#   1. deploy/bootstrap/bootstrap.sh installs Argo CD once with `helm install`;
+#   2. the "argocd" Application (deploy/platform/argocd.yaml) then manages Argo CD from git, so upgrades are PRs.
+# GitOps tool: Argo CD over Flux, proposed (ADR 0011 pending).
+#
+# Dev sizing: one replica of everything, no Redis HA. Argo CD being down only pauses deployments;
+# running workloads are unaffected, so HA is not worth two extra nodes here.
+
+global:
+  # Argo CD must run before Karpenter has launched any node, so it lives on the tainted system node group.
+  nodeSelector:
+    node-pool: system
+  tolerations:
+    - key: CriticalAddonsOnly
+      operator: Exists
+      effect: NoSchedule
+  # The chart's NetworkPolicies: only the components that must talk to each other can.
+  networkPolicy:
+    create: true
+
+configs:
+  cm:
+    # No Ingress: the UI and API are reached with `kubectl port-forward`, so nothing is exposed publicly.
+    # Admin login stays on for that reason (initial password: argocd-initial-admin-secret).
+    admin.enabled: true
+    exec.enabled: false
+    # Sync waves in the app-of-apps only wait for a child Application to be Healthy if Argo CD knows how
+    # to assess an Application's health. This check was removed from the defaults in Argo CD 1.8.
+    resource.customizations.health.argoproj.io_Application: |
+      hs = {}
+      hs.status = "Progressing"
+      hs.message = ""
+      if obj.status ~= nil then
+        if obj.status.health ~= nil then
+          hs.status = obj.status.health.status
+          if obj.status.health.message ~= nil then
+            hs.message = obj.status.health.message
+          end
+        end
+      end
+      return hs
+  # Public OCI Helm registries (Karpenter). Argo CD needs to be told these are OCI, not HTTP chart repos.
+  repositories:
+    karpenter:
+      name: karpenter
+      type: helm
+      url: public.ecr.aws/karpenter
+      enableOCI: "true"
+
+dex:
+  enabled: false
+
+notifications:
+  enabled: false
+
+controller:
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 1Gi}
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+
+server:
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 256Mi}
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+
+repoServer:
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 512Mi}
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+
+applicationSet:
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 256Mi}
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+
+redis:
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 256Mi}

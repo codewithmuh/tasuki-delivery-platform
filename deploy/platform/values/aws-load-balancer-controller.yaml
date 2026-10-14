@@ -1,0 +1,25 @@
+# AWS Load Balancer Controller (aws/eks-charts). clusterName, region and vpcId come from the ApplicationSet.
+
+# Must match the Pod Identity association in infra/platform/pod-identity.tf.
+serviceAccount:
+  create: true
+  name: aws-load-balancer-controller
+
+replicaCount: 2
+podDisruptionBudget:
+  maxUnavailable: 1
+resources:
+  requests: {cpu: 50m, memory: 128Mi}
+  limits: {memory: 256Mi}
+
+# Tags on every ALB, target group and security group it creates (cost reports, leftover checks).
+defaultTags:
+  Project: tasuki
+  ManagedBy: aws-load-balancer-controller
+
+# Tasuki exposes HTTP through Ingress (ALB) only. The Service webhook would make every new Service in the
+# cluster depend on this controller being up (failurePolicy Fail) for a feature we do not use.
+enableServiceMutatorWebhook: false
+
+serviceMonitor:
+  enabled: true

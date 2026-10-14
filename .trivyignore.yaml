@@ -1,0 +1,6 @@
+# Findings accepted on purpose. Each entry is scoped to exact paths and says why.
+misconfigurations:
+  - id: KSV-0014
+    paths:
+      - deploy/policies/tests/restrict-pod-security/resources.yaml
+    statement: Negative test fixture for the Kyverno readOnlyRootFilesystem rule; non-compliant on purpose and never deployed.

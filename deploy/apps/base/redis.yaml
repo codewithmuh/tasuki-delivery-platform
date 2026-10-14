@@ -1,0 +1,93 @@
+# The live fleet cache (contracts/README.md "Redis keys"). Valkey, the Linux Foundation fork of Redis
+# (BSD licence, same protocol), from its official image.
+#
+# A cache, not a store: it is derived from the courier.locations topic, and fleet-state rebuilds it by
+# replaying the last few minutes of the topic (design.md §7.2, §10 "Redis lost"). So: no persistence
+# (no RDB snapshots, no AOF), no volume, one replica. Losing it costs seconds of rebuild, not data.
+#
+# A StatefulSet rather than a Deployment: at most one redis-0 exists at any time, so during a rollout
+# clients never split between two empty caches.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: tasuki
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis
+        app.kubernetes.io/part-of: tasuki
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        # The image's valkey user.
+        runAsUser: 999
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: valkey
+          image: docker.io/valkey/valkey:9.0.6-alpine
+          args:
+            - --save
+            - ""
+            - --appendonly
+            - "no"
+            # Full means writes fail loudly, rather than silently evicting courier positions.
+            - --maxmemory
+            - 200mb
+            - --maxmemory-policy
+            - noeviction
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            tcpSocket:
+              port: redis
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: redis
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      # Working directory only; nothing is persisted.
+      volumes:
+        - name: data
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: tasuki
+spec:
+  selector:
+    app.kubernetes.io/name: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis

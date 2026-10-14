@@ -1,0 +1,35 @@
+# Resource metrics API (kubectl top, HorizontalPodAutoscaler on CPU).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: metrics-server
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-6"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    - repoURL: https://kubernetes-sigs.github.io/metrics-server/
+      chart: metrics-server
+      targetRevision: 3.14.0
+      helm:
+        releaseName: metrics-server
+        valueFiles:
+          - $values/deploy/platform/values/metrics-server.yaml
+    - repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+      targetRevision: main
+      ref: values
+  destination:
+    name: in-cluster
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 5m}

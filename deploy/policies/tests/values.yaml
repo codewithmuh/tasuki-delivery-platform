@@ -1,0 +1,18 @@
+# Namespace labels the CLI uses to evaluate the policies' namespaceSelectors (there is no cluster in tests).
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Values
+namespaceSelector:
+  - name: tasuki-dev
+    labels:
+      kubernetes.io/metadata.name: tasuki-dev
+      app.kubernetes.io/part-of: tasuki
+  - name: tasuki-prod
+    labels:
+      kubernetes.io/metadata.name: tasuki-prod
+      app.kubernetes.io/part-of: tasuki
+  - name: monitoring
+    labels:
+      kubernetes.io/metadata.name: monitoring
+  - name: kube-system
+    labels:
+      kubernetes.io/metadata.name: kube-system

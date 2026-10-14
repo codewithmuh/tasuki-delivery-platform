@@ -1,0 +1,87 @@
+# Operators for the stateful pieces. They are cluster add-ons (installed once, here); the Kafka and
+# PostgreSQL clusters they run are per environment and live with the environment (deploy/apps/base/).
+#   Kafka:      Strimzi on EKS, KRaft mode, proposed (ADR 0004 pending: Strimzi vs Redpanda vs Amazon MSK)
+#   PostgreSQL: CloudNativePG on EKS, proposed (ADR 0005 pending: CloudNativePG vs RDS Multi-AZ)
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: strimzi
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-6"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    - repoURL: https://strimzi.io/charts/
+      chart: strimzi-kafka-operator
+      targetRevision: 1.3.0
+      helm:
+        releaseName: strimzi
+        valueFiles:
+          - $values/deploy/platform/values/strimzi.yaml
+    - repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+      targetRevision: main
+      ref: values
+  destination:
+    name: in-cluster
+    namespace: strimzi
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 5m}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudnative-pg
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-6"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    - repoURL: https://cloudnative-pg.github.io/charts
+      chart: cloudnative-pg
+      targetRevision: 0.29.1
+      helm:
+        releaseName: cnpg
+        valueFiles:
+          - $values/deploy/platform/values/cloudnative-pg.yaml
+    - repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+      targetRevision: main
+      ref: values
+  destination:
+    name: in-cluster
+    namespace: cnpg-system
+  # The operator injects its own CA into its webhook configurations at runtime.
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      name: cnpg-mutating-webhook-configuration
+      jqPathExpressions: [".webhooks[]?.clientConfig.caBundle"]
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      name: cnpg-validating-webhook-configuration
+      jqPathExpressions: [".webhooks[]?.clientConfig.caBundle"]
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 5m}

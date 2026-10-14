@@ -1,0 +1,13 @@
+# Renamed to tasuki-<env> by the overlay's `namespace:` field.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tasuki
+  labels:
+    # The Kyverno policies (deploy/policies/) select Tasuki namespaces by this label.
+    app.kubernetes.io/part-of: tasuki
+    # Pod Security Admission, built into the API server: reject pods that break the "restricted" profile.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest

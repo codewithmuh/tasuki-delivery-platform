@@ -1,0 +1,148 @@
+name: fleet
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege by default; jobs ask for more only when they need it.
+permissions:
+  contents: read
+
+concurrency:
+  group: fleet-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  go:
+    name: Go fleet (lint, tests)
+    runs-on: ubuntu-24.04 # pinned: upgrade deliberately, not when GitHub moves "latest"
+    defaults:
+      run:
+        working-directory: services/fleet
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27"
+          cache-dependency-path: services/fleet/go.sum
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.14.0
+          working-directory: services/fleet
+      - name: go.mod and go.sum are tidy
+        run: go mod tidy -diff
+      # The tests also validate the Go event types against contracts/events/*.schema.json and
+      # check that the embedded wards.json still matches contracts/data/wards.json.
+      - name: Test (race detector, 80% coverage gate)
+        run: |
+          go test -race -covermode=atomic -coverprofile=coverage.out ./...
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {sub("%", "", $3); print $3}')
+          echo "Total coverage: ${total}%"
+          if awk -v t="$total" 'BEGIN { exit !(t + 0 < 80) }'; then
+            echo "::error::Go coverage ${total}% is below 80%"
+            exit 1
+          fi
+
+  images:
+    name: Image ${{ matrix.service }} (build, scan, smoke test)
+    needs: [go]
+    runs-on: ubuntu-24.04 # pinned: upgrade deliberately, not when GitHub moves "latest"
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [fleet-ingest, fleet-state, tracking]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: services/fleet
+          build-args: |
+            SERVICE=${{ matrix.service }}
+            APP_VERSION=${{ github.sha }}
+          load: true
+          push: false
+          tags: ${{ matrix.service }}:ci
+          cache-from: type=gha,scope=fleet-${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=fleet-${{ matrix.service }}
+      - name: Build for amd64 and arm64 (multi-arch check, cross-compiled, not loaded)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: services/fleet
+          build-args: |
+            SERVICE=${{ matrix.service }}
+            APP_VERSION=${{ github.sha }}
+          platforms: linux/amd64,linux/arm64
+          push: false
+          cache-from: type=gha,scope=fleet-${{ matrix.service }}
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.75.0 # the action's default (v0.70.0) has a path-traversal advisory fixed in 0.71.1
+          scan-type: image
+          image-ref: ${{ matrix.service }}:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Smoke test (starts without Kafka or Redis, probes answer, SIGTERM drains)
+        env:
+          SERVICE: ${{ matrix.service }}
+          IMAGE: ${{ matrix.service }}:ci
+        run: |
+          # Nothing listens on port 1, so Kafka and Redis are "down". A random secret per run
+          # keeps any literal secret out of the repository.
+          secret="$(openssl rand -hex 32)"
+          docker run --detach --name smoke --read-only --tmpfs /tmp --cap-drop ALL \
+            --env KAFKA_BROKERS=127.0.0.1:1 --env REDIS_URL=redis://127.0.0.1:1/0 \
+            --env COURIER_TOKEN_SECRET="${secret}" --env TRACKING_TOKEN_SECRET="${secret}" \
+            --publish 127.0.0.1:9000:8080 "${IMAGE}"
+          for _ in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:9000/healthz; then break; fi
+            sleep 1
+          done
+          curl --fail --silent --show-error http://127.0.0.1:9000/healthz
+          metrics=$(curl --fail --silent --show-error http://127.0.0.1:9000/metrics)
+          grep -q '^go_goroutines' <<<"${metrics}"
+          status() { curl --silent --output /dev/null --write-out '%{http_code}' "$@"; }
+
+          case "${SERVICE}" in
+            fleet-ingest)
+              # Ready without Kafka: it sheds load itself rather than leave the load balancer.
+              test "$(status http://127.0.0.1:9000/readyz)" = 200
+              test "$(status --request POST http://127.0.0.1:9000/v1/locations)" = 401
+              # A courier JWT (HS256) minted here; with Kafka down the batch must get 503 + Retry-After.
+              b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+              header=$(printf '{"alg":"HS256","typ":"JWT"}' | b64url)
+              payload=$(printf '{"sub":"cou_01JABCDEFGHJKMNPQRSTVWXYZ0","role":"courier","exp":%d}' \
+                "$(( $(date +%s) + 300 ))" | b64url)
+              signature=$(printf '%s.%s' "${header}" "${payload}" | openssl dgst -sha256 -hmac "${secret}" -binary | b64url)
+              body=$(printf '{"points":[{"lat":35.664,"lng":139.698,"device_time":"%s","status":"idle"}]}' \
+                "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
+              response=$(curl --silent --output /dev/null --dump-header - --request POST \
+                --header "Authorization: Bearer ${header}.${payload}.${signature}" \
+                --header 'Content-Type: application/json' --data "${body}" \
+                http://127.0.0.1:9000/v1/locations)
+              grep -q '^HTTP/[0-9.]* 503' <<<"${response}"
+              grep -qi '^retry-after: 5' <<<"${response}"
+              ;;
+            fleet-state)
+              # Not ready: the Redis rebuild from Kafka cannot finish.
+              test "$(status http://127.0.0.1:9000/readyz)" = 503
+              ;;
+            tracking)
+              # Not ready: the order replay cannot finish. The ops stream is off by default.
+              test "$(status http://127.0.0.1:9000/readyz)" = 503
+              test "$(status http://127.0.0.1:9000/v1/fleet/stream)" = 403
+              ;;
+          esac
+
+          docker stop --time 20 smoke # graceful shutdown must finish in time
+          test "$(docker inspect --format '{{.State.ExitCode}}' smoke)" = 0
+          docker logs smoke | tail -n 5

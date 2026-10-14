@@ -1,0 +1,9 @@
+# The hot path at peak (~750 GPS points/s, design.md §4): scale on CPU.
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+resources:
+  requests: {cpu: 100m, memory: 64Mi}
+  limits: {memory: 128Mi}

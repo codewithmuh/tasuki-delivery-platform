@@ -1,0 +1,29 @@
+{
+  "_about": "Tokyo's 23 special wards. Coordinates are approximate ward centres for synthetic data only, not survey data. IDs are the dispatch zone IDs used everywhere.",
+  "bbox": { "min_lat": 35.52, "max_lat": 35.82, "min_lng": 139.56, "max_lng": 139.92 },
+  "wards": [
+    { "id": "chiyoda", "name_en": "Chiyoda", "name_ja": "千代田区", "lat": 35.6940, "lng": 139.7536 },
+    { "id": "chuo", "name_en": "Chūō", "name_ja": "中央区", "lat": 35.6707, "lng": 139.7720 },
+    { "id": "minato", "name_en": "Minato", "name_ja": "港区", "lat": 35.6581, "lng": 139.7516 },
+    { "id": "shinjuku", "name_en": "Shinjuku", "name_ja": "新宿区", "lat": 35.6938, "lng": 139.7034 },
+    { "id": "bunkyo", "name_en": "Bunkyō", "name_ja": "文京区", "lat": 35.7080, "lng": 139.7522 },
+    { "id": "taito", "name_en": "Taitō", "name_ja": "台東区", "lat": 35.7126, "lng": 139.7800 },
+    { "id": "sumida", "name_en": "Sumida", "name_ja": "墨田区", "lat": 35.7107, "lng": 139.8015 },
+    { "id": "koto", "name_en": "Kōtō", "name_ja": "江東区", "lat": 35.6730, "lng": 139.8170 },
+    { "id": "shinagawa", "name_en": "Shinagawa", "name_ja": "品川区", "lat": 35.6092, "lng": 139.7302 },
+    { "id": "meguro", "name_en": "Meguro", "name_ja": "目黒区", "lat": 35.6415, "lng": 139.6982 },
+    { "id": "ota", "name_en": "Ōta", "name_ja": "大田区", "lat": 35.5613, "lng": 139.7160 },
+    { "id": "setagaya", "name_en": "Setagaya", "name_ja": "世田谷区", "lat": 35.6466, "lng": 139.6532 },
+    { "id": "shibuya", "name_en": "Shibuya", "name_ja": "渋谷区", "lat": 35.6640, "lng": 139.6982 },
+    { "id": "nakano", "name_en": "Nakano", "name_ja": "中野区", "lat": 35.7074, "lng": 139.6638 },
+    { "id": "suginami", "name_en": "Suginami", "name_ja": "杉並区", "lat": 35.6995, "lng": 139.6364 },
+    { "id": "toshima", "name_en": "Toshima", "name_ja": "豊島区", "lat": 35.7262, "lng": 139.7166 },
+    { "id": "kita", "name_en": "Kita", "name_ja": "北区", "lat": 35.7528, "lng": 139.7336 },
+    { "id": "arakawa", "name_en": "Arakawa", "name_ja": "荒川区", "lat": 35.7361, "lng": 139.7834 },
+    { "id": "itabashi", "name_en": "Itabashi", "name_ja": "板橋区", "lat": 35.7512, "lng": 139.7093 },
+    { "id": "nerima", "name_en": "Nerima", "name_ja": "練馬区", "lat": 35.7356, "lng": 139.6517 },
+    { "id": "adachi", "name_en": "Adachi", "name_ja": "足立区", "lat": 35.7750, "lng": 139.8044 },
+    { "id": "katsushika", "name_en": "Katsushika", "name_ja": "葛飾区", "lat": 35.7434, "lng": 139.8473 },
+    { "id": "edogawa", "name_en": "Edogawa", "name_ja": "江戸川区", "lat": 35.7068, "lng": 139.8683 }
+  ]
+}

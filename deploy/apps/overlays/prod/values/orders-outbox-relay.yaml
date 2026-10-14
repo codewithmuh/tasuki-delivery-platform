@@ -1,0 +1,2 @@
+# One relay: a single poller keeps the outbox drained in order. Its outage only delays events (design.md §10).
+replicas: 1

@@ -1,0 +1,18 @@
+# Tempo, monolithic (grafana-community/helm-charts; the grafana/tempo chart was deprecated in 2026).
+# One pod, traces on a gp3 volume, kept 3 days. The step up is tempo-distributed on S3.
+tempo:
+  retention: 72h
+  # Receivers: chart defaults (OTLP gRPC 4317 / HTTP 4318, plus Jaeger, which the chart's Service
+  # template requires). Traces only arrive from the OpenTelemetry collector, over OTLP gRPC.
+  reportingEnabled: false
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+
+persistence:
+  enabled: true
+  storageClassName: gp3
+  size: 10Gi
+
+serviceMonitor:
+  enabled: true

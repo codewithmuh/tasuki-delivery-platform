@@ -1,0 +1,32 @@
+# A random password generated in-cluster. refreshInterval 0: generate once, never rotate on its own
+# (delete the Secret to rotate). The Grafana chart would otherwise template a new random password on
+# every Argo CD render, because Helm's lookup() does not work there.
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: grafana-admin
+spec:
+  length: 32
+  digits: 6
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: grafana-admin
+spec:
+  refreshInterval: "0"
+  target:
+    name: grafana-admin
+    template:
+      data:
+        admin-user: admin
+        admin-password: "{{ .password }}"
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: grafana-admin

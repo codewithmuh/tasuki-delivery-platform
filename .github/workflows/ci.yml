@@ -36,8 +36,10 @@ jobs:
       - name: Scan files for vulnerabilities and misconfigurations
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          version: v0.75.0 # the action's default (v0.70.0) has a path-traversal advisory fixed in 0.71.1
           scan-type: fs
           scan-ref: .
+          trivyignores: .trivyignore.yaml # deliberate findings, each scoped to a path with a reason
           scanners: vuln,misconfig,secret
           severity: CRITICAL,HIGH
           ignore-unfixed: true
@@ -121,6 +123,7 @@ jobs:
       - name: Scan image for vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          version: v0.75.0 # the action's default (v0.70.0) has a path-traversal advisory fixed in 0.71.1
           scan-type: image
           image-ref: ${{ matrix.service }}:ci
           severity: CRITICAL,HIGH

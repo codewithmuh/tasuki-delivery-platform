@@ -1,0 +1,20 @@
+# Strimzi Kafka operator (strimzi.io/charts). Kafka clusters: deploy/apps/base/kafka.yaml.
+
+# Watch every namespace (ClusterRoleBindings), so the operator never depends on the environment
+# namespaces existing first.
+watchAnyNamespace: true
+
+# Give Kafka pods the Pod Security "restricted" security context (non-root, no privilege escalation,
+# all capabilities dropped, RuntimeDefault seccomp), which the tasuki-* namespaces enforce.
+extraEnvs:
+  - name: STRIMZI_POD_SECURITY_PROVIDER_CLASS
+    value: restricted
+
+resources:
+  requests: {cpu: 100m, memory: 384Mi}
+  limits: {memory: 512Mi}
+
+# Strimzi's Kafka dashboards, picked up by the Grafana sidecar.
+dashboards:
+  enabled: true
+  namespace: monitoring

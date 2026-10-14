@@ -1,0 +1,5 @@
+# metrics-server (kubernetes-sigs). One replica: if it restarts, HPAs hold their current scale for a minute.
+replicas: 1
+resources:
+  requests: {cpu: 50m, memory: 64Mi}
+  limits: {memory: 256Mi}

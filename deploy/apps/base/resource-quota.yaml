@@ -1,0 +1,13 @@
+# The environment's budget. Requests are what Karpenter buys nodes for, so this caps the bill per
+# namespace (on top of the NodePool's CPU limit for the whole cluster). Sized in the overlays.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: tasuki
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.memory: 12Gi
+    persistentvolumeclaims: "10"
+    requests.storage: 60Gi

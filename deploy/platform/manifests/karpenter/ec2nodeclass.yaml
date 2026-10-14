@@ -1,0 +1,42 @@
+# How Karpenter launches an EC2 instance. The names below are fixed in Terraform on purpose
+# (infra/platform/karpenter.tf, vpc.tf, eks.tf), so nothing account-specific is needed here.
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: default
+spec:
+  # IAM role of the nodes (Terraform output karpenter_node_role_name). Karpenter creates the instance profile.
+  role: tasuki-karpenter-node
+  # Amazon Linux 2023, following the newest EKS-optimized AMI: when AWS publishes one, nodes drift and are
+  # replaced one budget at a time. A production cluster would pin al2023@vYYYYMMDD and bump it by PR.
+  amiSelectorTerms:
+    - alias: al2023@latest
+  # Private subnets and the node security group carry this tag (vpc.tf, eks.tf).
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: tasuki
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: tasuki
+  # IMDSv2 only, and a hop limit of 1: a pod (one network hop away) cannot reach instance metadata, so it
+  # cannot borrow the node's IAM role. Pods get AWS credentials from EKS Pod Identity instead.
+  metadataOptions:
+    httpEndpoint: enabled
+    httpProtocolIPv6: disabled
+    httpTokens: required
+    httpPutResponseHopLimit: 1
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 30Gi
+        volumeType: gp3
+        encrypted: true
+        deleteOnTermination: true
+  # The VPC CNI runs with prefix delegation (eks.tf), so a node can hold 110 pods regardless of its ENI count.
+  kubelet:
+    maxPods: 110
+  # Cost reports and leftover checks find Karpenter's instances by these, like Terraform's default_tags.
+  tags:
+    Project: tasuki
+    ManagedBy: karpenter
+    Repository: codewithmuh/tasuki-delivery-platform

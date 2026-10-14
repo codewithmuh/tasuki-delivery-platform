@@ -1,0 +1,945 @@
+openapi: 3.0.3
+info:
+  title: Tasuki orders API
+  version: 1.0.0
+  description: 'Quotes, orders and the order lifecycle for Tasuki merchants and couriers.
+    Errors are returned as {"error": {"code", "message"}}.'
+paths:
+  /v1/admin/couriers:
+    post:
+      operationId: admin_create_courier
+      tags:
+      - admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CourierCreateRequest'
+        required: true
+      security:
+      - adminToken: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourierToken'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: validation_error, parse_error.'
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: not_authenticated, authentication_failed.'
+  /v1/admin/couriers/{courier_id}/token:
+    post:
+      operationId: admin_issue_courier_token
+      description: Issue a fresh token for an existing courier (tokens are not refreshable).
+      parameters:
+      - in: path
+        name: courier_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - admin
+      security:
+      - adminToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourierToken'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: not_authenticated, authentication_failed.'
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: not_found.'
+  /v1/admin/merchants:
+    post:
+      operationId: admin_create_merchant
+      tags:
+      - admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MerchantCreateRequest'
+        required: true
+      security:
+      - adminToken: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MerchantCreated'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: validation_error, parse_error.'
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: not_authenticated, authentication_failed.'
+  /v1/courier/orders/{order_id}/deliver:
+    post:
+      operationId: courier_deliver
+      description: Delivered. The courier's position is the proof and must be near
+        the drop-off.
+      parameters:
+      - in: path
+        name: order_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - courier
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeliverRequest'
+        required: true
+      security:
+      - courierToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourierOrder'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: validation_error, parse_error.'
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: not_authenticated, authentication_failed.'
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: not_found (not assigned to you).'
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: illegal_transition.'
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: proof_too_far.'
+  /v1/courier/orders/{order_id}/fail:
+    post:
+      operationId: courier_fail
+      description: The courier has the order but cannot hand it over.
+      parameters:
+      - in: path
+        name: order_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - courier
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FailRequest'
+      security:
+      - courierToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourierOrder'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: not_authenticated, authentication_failed.'
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: not_found (not assigned to you).'
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: illegal_transition.'
+  /v1/courier/orders/{order_id}/pickup:
+    post:
+      operationId: courier_pickup
+      description: The assigned courier has the order. 404 if it is not assigned to
+        the caller.
+      parameters:
+      - in: path
+        name: order_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - courier
+      security:
+      - courierToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourierOrder'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: not_authenticated, authentication_failed.'
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: not_found (not assigned to you).'
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: illegal_transition.'
+  /v1/orders:
+    post:
+      operationId: create_order
+      description: Create a confirmed order from a quote. Safe to retry with the same
+        Idempotency-Key.
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        schema:
+          type: string
+        description: Unique per order attempt (a UUID). Retries reuse it; kept 24
+          h.
+        required: true
+      tags:
+      - orders
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderCreateRequest'
+        required: true
+      security:
+      - merchantApiKey: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderCreated'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: idempotency_key_required, validation_error.'
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: not_authenticated, authentication_failed.'
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: quote_not_found.'
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: quote_expired, quote_already_used.'
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: idempotency_key_reused, dropoff_mismatch.'
+  /v1/orders/{order_id}:
+    get:
+      operationId: get_order
+      description: The order and its status history, oldest first.
+      parameters:
+      - in: path
+        name: order_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - orders
+      security:
+      - merchantApiKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDetail'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: not_authenticated, authentication_failed.'
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: not_found.'
+  /v1/orders/{order_id}/cancel:
+    post:
+      operationId: cancel_order
+      description: Cancel before pickup. After pickup the order can only be delivered
+        or fail (409).
+      parameters:
+      - in: path
+        name: order_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - orders
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelRequest'
+      security:
+      - merchantApiKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDetail'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: validation_error, parse_error.'
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: not_authenticated, authentication_failed.'
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: not_found.'
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: illegal_transition.'
+  /v1/quotes:
+    post:
+      operationId: create_quote
+      description: Price and ETA for one delivery, valid for 2 minutes.
+      tags:
+      - quotes
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuoteRequestRequest'
+        required: true
+      security:
+      - merchantApiKey: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Quote'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: validation_error, parse_error.'
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: not_authenticated, authentication_failed.'
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: 'Error codes: store_not_found.'
+components:
+  schemas:
+    CancelReasonEnum:
+      enum:
+      - merchant_request
+      - customer_request
+      - out_of_stock
+      - other
+      type: string
+      description: |-
+        * `merchant_request` - merchant_request
+        * `customer_request` - customer_request
+        * `out_of_stock` - out_of_stock
+        * `other` - other
+    CancelRequest:
+      type: object
+      properties:
+        reason:
+          allOf:
+          - $ref: '#/components/schemas/CancelReasonEnum'
+          default: merchant_request
+    CourierCreateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        vehicle:
+          $ref: '#/components/schemas/VehicleEnum'
+      required:
+      - name
+      - vehicle
+    CourierOrder:
+      type: object
+      properties:
+        order_id:
+          type: string
+        status:
+          $ref: '#/components/schemas/OrderStatusEnum'
+      required:
+      - order_id
+      - status
+    CourierToken:
+      type: object
+      properties:
+        courier_id:
+          type: string
+        token:
+          type: string
+          description: Courier JWT (HS256), valid COURIER_TOKEN_TTL_SECONDS.
+      required:
+      - courier_id
+      - token
+    DeliverRequest:
+      type: object
+      properties:
+        lat:
+          type: number
+          format: double
+          maximum: 90
+          minimum: -90
+        lng:
+          type: number
+          format: double
+          maximum: 180
+          minimum: -180
+      required:
+      - lat
+      - lng
+    DropoffRequest:
+      type: object
+      properties:
+        lat:
+          type: number
+          format: double
+          maximum: 35.82
+          minimum: 35.52
+        lng:
+          type: number
+          format: double
+          maximum: 139.92
+          minimum: 139.56
+        ward:
+          $ref: '#/components/schemas/WardEnum'
+        address:
+          type: string
+          minLength: 1
+          maxLength: 500
+        customer_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        customer_phone:
+          type: string
+          minLength: 1
+          pattern: ^[0-9+()\- ]{7,20}$
+      required:
+      - address
+      - customer_name
+      - customer_phone
+      - lat
+      - lng
+      - ward
+    Error:
+      type: object
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorDetail'
+      required:
+      - error
+    ErrorDetail:
+      type: object
+      properties:
+        code:
+          type: string
+          description: Stable, snake_case; branch on this, not on the message.
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: {}
+          description: Field errors (validation_error).
+      required:
+      - code
+      - message
+    EtaSourceEnum:
+      enum:
+      - dispatch
+      - fallback
+      type: string
+      description: |-
+        * `dispatch` - dispatch
+        * `fallback` - fallback
+    FailReasonEnum:
+      enum:
+      - customer_unreachable
+      - address_not_found
+      - refused
+      - other
+      type: string
+      description: |-
+        * `customer_unreachable` - customer_unreachable
+        * `address_not_found` - address_not_found
+        * `refused` - refused
+        * `other` - other
+    FailRequest:
+      type: object
+      properties:
+        reason:
+          allOf:
+          - $ref: '#/components/schemas/FailReasonEnum'
+          default: customer_unreachable
+    History:
+      type: object
+      properties:
+        status:
+          type: string
+        from_status:
+          type: string
+          nullable: true
+        actor:
+          type: string
+          description: merchant:…, courier:…, dispatch, relay
+        reason:
+          type: string
+          nullable: true
+        occurred_at:
+          type: string
+          format: date-time
+      required:
+      - actor
+      - from_status
+      - occurred_at
+      - reason
+      - status
+    MerchantCreateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        stores:
+          type: array
+          items:
+            $ref: '#/components/schemas/StoreInputRequest'
+      required:
+      - name
+    MerchantCreated:
+      type: object
+      properties:
+        merchant_id:
+          type: string
+        api_key:
+          type: string
+          description: Shown once. Only a hash is stored.
+        stores:
+          type: array
+          items:
+            $ref: '#/components/schemas/Store'
+      required:
+      - api_key
+      - merchant_id
+      - stores
+    OrderCreateRequest:
+      type: object
+      properties:
+        quote_id:
+          type: string
+          minLength: 1
+          maxLength: 30
+        dropoff:
+          allOf:
+          - $ref: '#/components/schemas/DropoffRequest'
+          description: Optional. If sent, it must equal the quoted drop-off (422 dropoff_mismatch).
+      required:
+      - quote_id
+    OrderCreated:
+      type: object
+      properties:
+        order_id:
+          type: string
+        status:
+          $ref: '#/components/schemas/OrderStatusEnum'
+        promised_at:
+          type: string
+          format: date-time
+        fee_yen:
+          type: integer
+        tracking_url:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - created_at
+      - fee_yen
+      - order_id
+      - promised_at
+      - status
+      - tracking_url
+    OrderDetail:
+      type: object
+      properties:
+        order_id:
+          type: string
+        status:
+          $ref: '#/components/schemas/OrderStatusEnum'
+        promised_at:
+          type: string
+          format: date-time
+        fee_yen:
+          type: integer
+        tracking_url:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+        store_id:
+          type: string
+        dropoff:
+          allOf:
+          - $ref: '#/components/schemas/Point'
+          readOnly: true
+        status_reason:
+          type: string
+          nullable: true
+        fee_excl_tax_yen:
+          type: integer
+        tax_yen:
+          type: integer
+        ready_at:
+          type: string
+          format: date-time
+        courier_id:
+          type: string
+          nullable: true
+        picked_up_at:
+          type: string
+          format: date-time
+          nullable: true
+        delivered_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/History'
+      required:
+      - courier_id
+      - created_at
+      - delivered_at
+      - dropoff
+      - fee_excl_tax_yen
+      - fee_yen
+      - history
+      - order_id
+      - picked_up_at
+      - promised_at
+      - ready_at
+      - status
+      - status_reason
+      - store_id
+      - tax_yen
+      - tracking_url
+      - updated_at
+    OrderStatusEnum:
+      enum:
+      - confirmed
+      - dispatching
+      - assigned
+      - picked_up
+      - delivered
+      - cancelled
+      - failed
+      type: string
+      description: |-
+        * `confirmed` - Confirmed
+        * `dispatching` - Dispatching
+        * `assigned` - Assigned
+        * `picked_up` - Picked Up
+        * `delivered` - Delivered
+        * `cancelled` - Cancelled
+        * `failed` - Failed
+    Point:
+      type: object
+      properties:
+        lat:
+          type: number
+          format: double
+        lng:
+          type: number
+          format: double
+        ward:
+          type: string
+      required:
+      - lat
+      - lng
+      - ward
+    Quote:
+      type: object
+      properties:
+        quote_id:
+          type: string
+        fee_yen:
+          type: integer
+          description: Delivery fee including 10 % consumption tax.
+        fee_excl_tax_yen:
+          type: integer
+        tax_yen:
+          type: integer
+          description: 10 % of fee_excl_tax_yen, rounded down.
+        distance_m:
+          type: integer
+          description: Straight-line distance store to drop-off.
+        eta_seconds:
+          type: integer
+        promised_at:
+          type: string
+          format: date-time
+          description: Indicative. The order's own promise is fixed when it is created.
+        expires_at:
+          type: string
+          format: date-time
+        eta_source:
+          $ref: '#/components/schemas/EtaSourceEnum'
+      required:
+      - distance_m
+      - eta_seconds
+      - eta_source
+      - expires_at
+      - fee_excl_tax_yen
+      - fee_yen
+      - promised_at
+      - quote_id
+      - tax_yen
+    QuoteRequestRequest:
+      type: object
+      properties:
+        store_id:
+          type: string
+          minLength: 1
+          maxLength: 30
+        dropoff:
+          $ref: '#/components/schemas/DropoffRequest'
+      required:
+      - dropoff
+      - store_id
+    Store:
+      type: object
+      properties:
+        store_id:
+          type: string
+        name:
+          type: string
+        lat:
+          type: number
+          format: double
+        lng:
+          type: number
+          format: double
+        ward:
+          type: string
+        prep_minutes:
+          type: integer
+      required:
+      - lat
+      - lng
+      - name
+      - prep_minutes
+      - store_id
+      - ward
+    StoreInputRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        lat:
+          type: number
+          format: double
+        lng:
+          type: number
+          format: double
+        ward:
+          $ref: '#/components/schemas/WardEnum'
+        prep_minutes:
+          type: integer
+          maximum: 180
+          minimum: 0
+          default: 10
+      required:
+      - lat
+      - lng
+      - name
+      - ward
+    VehicleEnum:
+      enum:
+      - bicycle
+      - scooter
+      type: string
+      description: |-
+        * `bicycle` - Bicycle
+        * `scooter` - Scooter
+    WardEnum:
+      enum:
+      - adachi
+      - arakawa
+      - bunkyo
+      - chiyoda
+      - chuo
+      - edogawa
+      - itabashi
+      - katsushika
+      - kita
+      - koto
+      - meguro
+      - minato
+      - nakano
+      - nerima
+      - ota
+      - setagaya
+      - shibuya
+      - shinagawa
+      - shinjuku
+      - suginami
+      - sumida
+      - taito
+      - toshima
+      type: string
+      description: |-
+        * `adachi` - adachi
+        * `arakawa` - arakawa
+        * `bunkyo` - bunkyo
+        * `chiyoda` - chiyoda
+        * `chuo` - chuo
+        * `edogawa` - edogawa
+        * `itabashi` - itabashi
+        * `katsushika` - katsushika
+        * `kita` - kita
+        * `koto` - koto
+        * `meguro` - meguro
+        * `minato` - minato
+        * `nakano` - nakano
+        * `nerima` - nerima
+        * `ota` - ota
+        * `setagaya` - setagaya
+        * `shibuya` - shibuya
+        * `shinagawa` - shinagawa
+        * `shinjuku` - shinjuku
+        * `suginami` - suginami
+        * `sumida` - sumida
+        * `taito` - taito
+        * `toshima` - toshima
+  securitySchemes:
+    adminToken:
+      type: http
+      scheme: bearer
+      description: ADMIN_TOKEN, for seeding. Not enabled in production.
+    courierToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Courier JWT (HS256; claims sub, role=courier, exp).
+    merchantApiKey:
+      type: http
+      scheme: bearer
+      description: Merchant API key (`tsk_…`), issued by POST /v1/admin/merchants.

@@ -1,0 +1,27 @@
+{{- range $name := keys .Values.cronJobs | sortAlpha }}
+{{- $job := index $.Values.cronJobs $name }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "service.name" $ }}-{{ $name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "service.labels" $ | nindent 4 }}
+spec:
+  schedule: {{ required (printf "cronJobs.%s.schedule is required" $name) $job.schedule | quote }}
+  timeZone: Asia/Tokyo
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            {{- include "service.labels" $ | nindent 12 }}
+            app.kubernetes.io/component: {{ $name }}
+        spec:
+          {{- include "service.podSpec" (dict "root" $ "long" false "args" (required (printf "cronJobs.%s.args is required" $name) $job.args)) | nindent 10 }}
+{{- end }}

@@ -1,0 +1,20 @@
+# The root Application (deploy/bootstrap/root.yaml) syncs exactly this list. Order of creation is set by
+# each object's argocd.argoproj.io/sync-wave, not by this list.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - projects.yaml
+  - argocd.yaml
+  - karpenter.yaml
+  - storage.yaml
+  - aws-load-balancer-controller.yaml
+  - metrics-server.yaml
+  - external-secrets.yaml
+  - kyverno.yaml
+  - monitoring.yaml
+  - logs-traces.yaml
+  - opentelemetry-collector.yaml
+  - prometheus-rules.yaml
+  - data-operators.yaml
+  - tasuki.yaml
+  - grafana-dashboards.yaml

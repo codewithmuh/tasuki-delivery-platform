@@ -1,0 +1,31 @@
+# Without a readiness probe a pod gets traffic before it can serve it (and during shutdown); without a
+# liveness probe a hung process is never restarted. Checked on Deployments, which is where services
+# live; Jobs and operator-managed pods (Kafka, PostgreSQL) are out of scope.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: require-probes
+  annotations:
+    policies.kyverno.io/title: Require readiness and liveness probes
+    policies.kyverno.io/severity: medium
+spec:
+  validationActions: [Deny]
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [apps]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [deployments]
+    namespaceSelector:
+      matchLabels:
+        app.kubernetes.io/part-of: tasuki
+  variables:
+    - name: missing
+      expression: >-
+        object.spec.template.spec.containers.filter(c,
+          !has(c.readinessProbe) || !has(c.livenessProbe)
+        ).map(c, c.name)
+  validations:
+    - expression: variables.missing.size() == 0
+      messageExpression: >-
+        'containers need both a readinessProbe and a livenessProbe: ' + variables.missing.join(', ')

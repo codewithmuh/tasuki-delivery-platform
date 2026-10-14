@@ -1,0 +1,3 @@
+# Seeded merchant API keys and courier tokens (see README "State file"). Never commit.
+.state/
+coverage.out

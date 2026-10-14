@@ -1,0 +1,62 @@
+# Rendered at container start by the nginx image's entrypoint (envsubst, CONSOLE_* variables only)
+# into /tmp/tasuki/console.conf. ${CONSOLE_TRACKING_BASE_URL} is the only runtime input.
+
+# Hashed assets never change: cache for a year. Everything else is revalidated on every load.
+map $uri $cache_control {
+  ~^/assets/ "public, max-age=31536000, immutable";
+  /config.json "no-store";
+  default "no-cache";
+}
+
+server {
+  listen 8080;
+  server_name _;
+  root /srv/console;
+
+  # Only this origin, the tracking service and the basemap host (OpenFreeMap) are allowed.
+  add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tiles.openfreemap.org; font-src 'self'; connect-src 'self' ${CONSOLE_TRACKING_BASE_URL} https://tiles.openfreemap.org; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" always;
+  add_header X-Content-Type-Options "nosniff" always;
+  # Tracking URLs contain a token: send no Referer anywhere (tiles included).
+  add_header Referrer-Policy "no-referrer" always;
+  add_header X-Frame-Options "DENY" always;
+  add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()" always;
+  add_header Cross-Origin-Opener-Policy "same-origin" always;
+  add_header X-Robots-Tag "noindex, nofollow" always;
+  add_header Cache-Control $cache_control always;
+
+  # Liveness and readiness: nginx answers, nothing else to check (no dependencies).
+  location = /healthz {
+    access_log off;
+    default_type text/plain;
+    return 200 "ok\n";
+  }
+
+  location = /readyz {
+    access_log off;
+    default_type text/plain;
+    return 200 "ok\n";
+  }
+
+  location = /config.json {
+    alias /tmp/tasuki/config.json;
+  }
+
+  location /assets/ {
+    try_files $uri =404;
+  }
+
+  # Client-side routes (/ and /track/:token) all load the app.
+  location / {
+    try_files $uri /index.html;
+  }
+}
+
+# Connection counters for a future nginx-prometheus-exporter sidecar. Pod-local only.
+server {
+  listen 127.0.0.1:8081;
+  access_log off;
+
+  location = /stub_status {
+    stub_status;
+  }
+}

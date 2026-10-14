@@ -1,0 +1,16 @@
+{{- if .Values.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "service.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "service.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: {{ .Values.pdb.maxUnavailable }}
+  # Evict pods that are not Ready even when the budget is spent, so a broken rollout cannot block a drain.
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      {{- include "service.serverSelectorLabels" . | nindent 6 }}
+{{- end }}

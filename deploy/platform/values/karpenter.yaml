@@ -1,0 +1,19 @@
+# Karpenter controller (oci://public.ecr.aws/karpenter/karpenter). settings.clusterName and
+# settings.interruptionQueue are set by the ApplicationSet from the cluster Secret's annotations.
+
+# Karpenter cannot run on nodes it manages (it would scale away its own node), so it runs on the
+# system node group. The chart's default tolerations already include CriticalAddonsOnly.
+nodeSelector:
+  node-pool: system
+
+# Two replicas with leader election: if one system node goes, scaling keeps working. The chart's
+# required anti-affinity puts them on different nodes; the system node group has min_size 2.
+replicas: 2
+
+controller:
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+
+serviceMonitor:
+  enabled: true

@@ -1,0 +1,14 @@
+# Everything that exists once per environment namespace. The overlays (../overlays/dev, ../overlays/prod)
+# set the namespace and the sizes. The services themselves are Helm releases of deploy/charts/service,
+# created by the tasuki-services ApplicationSet (deploy/platform/tasuki.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - resource-quota.yaml
+  - network-policies.yaml
+  - external-secret.yaml
+  - kafka.yaml
+  - postgres.yaml
+  - redis.yaml
+  - monitoring.yaml

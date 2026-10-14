@@ -1,0 +1,36 @@
+# tracking (services/fleet): server-sent events to customers, merchants and the ops console. Every
+# replica reads every message from Kafka (no Redis), and replays orders.events and dispatch.events
+# from the start before it reports ready, which can take tens of seconds.
+image:
+  repository: ghcr.io/codewithmuh/tasuki-delivery-platform/tracking
+port: 8080
+
+env:
+  LOG_LEVEL: info
+  SHUTDOWN_TIMEOUT: 20s
+  KAFKA_BROKERS: tasuki-kafka-bootstrap:9092
+secretEnv:
+  TRACKING_TOKEN_SECRET: {secret: tasuki-app, key: TRACKING_TOKEN_SECRET}
+  # Bearer token for the ops console's /v1/fleet/stream.
+  FLEET_STREAM_TOKEN: {secret: tasuki-app, key: FLEET_STREAM_TOKEN}
+
+# During the replay /readyz says 503 (no traffic yet) while /healthz says 200, so a slow replay delays
+# the rollout but never gets the pod restarted.
+
+resources:
+  requests: {cpu: 50m, memory: 128Mi}
+  limits: {memory: 256Mi}
+
+networkPolicy:
+  allowFrom:
+    # Customers following tracking links, played by the simulator.
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: simulator
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              strimzi.io/cluster: tasuki
+      ports:
+        - port: 9092

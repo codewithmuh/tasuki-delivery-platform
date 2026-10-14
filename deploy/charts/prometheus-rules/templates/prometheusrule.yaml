@@ -1,0 +1,14 @@
+{{- if not .Values.groups }}
+{{- fail "no rule groups: pass a Prometheus rule file (groups: [...]) as a values file" }}
+{{- end }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}
+    app.kubernetes.io/part-of: tasuki
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  groups:
+    {{- toYaml .Values.groups | nindent 4 }}

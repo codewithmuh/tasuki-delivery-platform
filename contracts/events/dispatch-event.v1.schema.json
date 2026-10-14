@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/codewithmuh/tasuki-delivery-platform/contracts/events/dispatch-event.v1.schema.json",
+  "title": "dispatch.event.v1",
+  "description": "A dispatch decision or offer outcome. Topic dispatch.events, key order_id.",
+  "type": "object",
+  "required": ["schema", "event_id", "type", "order_id", "occurred_at"],
+  "additionalProperties": true,
+  "properties": {
+    "schema": { "const": "dispatch.event.v1" },
+    "event_id": { "type": "string", "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "type": { "enum": ["OfferSent", "OfferAccepted", "OfferDeclined", "OfferExpired", "CourierAssigned", "NoCourierAvailable"] },
+    "order_id": { "type": "string", "pattern": "^ord_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "courier_id": { "type": ["string", "null"], "pattern": "^cou_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "offer_id": { "type": ["string", "null"], "pattern": "^off_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "ward": { "type": "string" },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "offer_expires_at": { "type": ["string", "null"], "format": "date-time" },
+    "eta_pickup_s": { "type": ["integer", "null"], "minimum": 0, "description": "Road time from the courier to the store, seconds." },
+    "eta_dropoff_s": { "type": ["integer", "null"], "minimum": 0, "description": "Road time from the store to the drop-off, seconds." }
+  }
+}

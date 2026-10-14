@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/codewithmuh/tasuki-delivery-platform/contracts/events/order-event.v1.schema.json",
+  "title": "order.event.v1",
+  "description": "A change in an order's lifecycle, published through the transactional outbox. Topic orders.events, key order_id. Contains no customer name, phone or address text: only coordinates needed for dispatch.",
+  "type": "object",
+  "required": ["schema", "event_id", "type", "order_id", "merchant_id", "occurred_at", "order"],
+  "additionalProperties": true,
+  "properties": {
+    "schema": { "const": "order.event.v1" },
+    "event_id": { "type": "string", "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "type": { "enum": ["OrderConfirmed", "OrderCancelled", "OrderPickedUp", "OrderDelivered", "OrderFailed"] },
+    "order_id": { "type": "string", "pattern": "^ord_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "merchant_id": { "type": "string", "pattern": "^mer_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "order": {
+      "type": "object",
+      "required": ["store", "dropoff", "promised_at", "fee_yen"],
+      "properties": {
+        "store": {
+          "type": "object",
+          "required": ["id", "lat", "lng", "ward"],
+          "properties": {
+            "id": { "type": "string", "pattern": "^str_[0-9A-HJKMNP-TV-Z]{26}$" },
+            "lat": { "type": "number" },
+            "lng": { "type": "number" },
+            "ward": { "type": "string", "description": "Ward ID from contracts/data/wards.json" }
+          }
+        },
+        "dropoff": {
+          "type": "object",
+          "required": ["lat", "lng", "ward"],
+          "properties": {
+            "lat": { "type": "number" },
+            "lng": { "type": "number" },
+            "ward": { "type": "string" }
+          }
+        },
+        "ready_at": { "type": ["string", "null"], "format": "date-time", "description": "When the store expects the order to be ready for pickup." },
+        "promised_at": { "type": "string", "format": "date-time", "description": "Delivery time promised at confirmation (the ETA SLO compares against this)." },
+        "fee_yen": { "type": "integer", "minimum": 0, "description": "Delivery fee including 10% consumption tax, integer yen." },
+        "courier_id": { "type": ["string", "null"], "description": "Set on OrderPickedUp and OrderDelivered." }
+      }
+    },
+    "reason": { "type": ["string", "null"], "description": "Set on OrderCancelled and OrderFailed." }
+  }
+}

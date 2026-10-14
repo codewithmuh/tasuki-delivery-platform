@@ -1,0 +1,82 @@
+name: deploy
+
+# Static checks of everything Argo CD will apply (deploy/): the same `make deploy-lint` as on a laptop.
+# No cluster and no cloud credentials: rendering needs only the public chart repositories.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  gitops:
+    name: GitOps manifests (helm, kustomize, kubeconform, kyverno)
+    runs-on: ubuntu-24.04 # pinned: upgrade deliberately, not when GitHub moves "latest"
+    timeout-minutes: 15
+    env:
+      # Each tool is pinned by version and by the SHA-256 of its release archive.
+      HELM_VERSION: v4.2.4
+      HELM_SHA256: c306b46f719b0a4da32d0f78ee21bf90ce8d602f15b22ab753f0674d1670a7f3
+      KUSTOMIZE_VERSION: v5.8.3
+      KUSTOMIZE_SHA256: cb9e31198d3f63b44848bd0afc4c8efc56e6cfef9c93a4a39a211940e6decd61
+      YQ_VERSION: v4.54.1
+      YQ_SHA256: 8e34fc298390875de416e6a4afcb8cabeceb25d9aa8506c1a2f9353cf702ea5f
+      KUBECONFORM_VERSION: v0.8.0
+      KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+      # Same minor as the Kyverno chart in deploy/platform/kyverno.yaml (app v1.19.1).
+      KYVERNO_VERSION: v1.19.1
+      KYVERNO_SHA256: b38228f367fc0fdc2b08f4c83ea50ac5f16c60ff8d62d76a66157c33c47b70ae
+      # Same version as the repository-wide scan in ci.yml.
+      TRIVY_VERSION: 0.75.0
+      TRIVY_SHA256: c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f
+      SHELLCHECK_VERSION: v0.11.0
+      SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned tools (checksums verified)
+        run: |
+          bin="$RUNNER_TEMP/bin"
+          mkdir -p "$bin"
+          cd "$RUNNER_TEMP"
+          fetch() { # url file sha256
+            curl --fail --silent --show-error --location --retry 3 --output "$2" "$1"
+            echo "$3  $2" | sha256sum --check --strict
+          }
+          fetch "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" helm.tgz "$HELM_SHA256"
+          tar -xzf helm.tgz --strip-components=1 -C "$bin" linux-amd64/helm
+          fetch "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" kustomize.tgz "$KUSTOMIZE_SHA256"
+          tar -xzf kustomize.tgz -C "$bin" kustomize
+          fetch "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" yq "$YQ_SHA256"
+          install -m 0755 yq "$bin/yq"
+          fetch "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" kubeconform.tgz "$KUBECONFORM_SHA256"
+          tar -xzf kubeconform.tgz -C "$bin" kubeconform
+          fetch "https://github.com/kyverno/kyverno/releases/download/${KYVERNO_VERSION}/kyverno-cli_${KYVERNO_VERSION}_linux_x86_64.tar.gz" kyverno.tgz "$KYVERNO_SHA256"
+          tar -xzf kyverno.tgz -C "$bin" kyverno
+          fetch "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" trivy.tgz "$TRIVY_SHA256"
+          tar -xzf trivy.tgz -C "$bin" trivy
+          fetch "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" shellcheck.txz "$SHELLCHECK_SHA256"
+          tar -xJf shellcheck.txz --strip-components=1 -C "$bin" "shellcheck-${SHELLCHECK_VERSION}/shellcheck"
+          echo "$bin" >> "$GITHUB_PATH"
+
+      - name: Tool versions
+        run: |
+          helm version --short
+          kustomize version
+          yq --version
+          kubeconform -v
+          kyverno version
+          trivy --version | head -n 1
+          shellcheck --version | head -n 2
+          jq --version # from the runner image
+
+      - name: Lint GitOps manifests
+        run: make deploy-lint

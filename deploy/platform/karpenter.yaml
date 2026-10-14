@@ -1,0 +1,117 @@
+# Karpenter launches the worker nodes everything except the controllers runs on.
+# AWS side (IAM roles, SQS interruption queue, access entry): infra/platform/karpenter.tf.
+---
+# CRDs as their own chart, first, so the NodePool/EC2NodeClass Application never races the CRDs and a
+# controller upgrade never deletes them. The controller chart below skips its own copy (skipCrds).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: karpenter-crd
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-9"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: public.ecr.aws/karpenter
+    chart: karpenter-crd
+    targetRevision: 1.15.0
+    helm:
+      releaseName: karpenter-crd
+  destination:
+    name: in-cluster
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 5m}
+---
+# The controller needs two account-specific values: the cluster name and the SQS queue name. They come
+# from the annotations bootstrap.sh puts on Argo CD's cluster Secret (from `terraform output`), through
+# the cluster generator. That is the whole "GitOps bridge" between Terraform and Argo CD.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: karpenter
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-8"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            tasuki.io/platform: "true"
+  template:
+    metadata:
+      name: karpenter
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: platform
+      sources:
+        - repoURL: public.ecr.aws/karpenter
+          chart: karpenter
+          targetRevision: 1.15.0
+          helm:
+            releaseName: karpenter
+            skipCrds: true
+            valueFiles:
+              - $values/deploy/platform/values/karpenter.yaml
+            valuesObject:
+              settings:
+                clusterName: "{{ .metadata.annotations.cluster_name }}"
+                interruptionQueue: "{{ .metadata.annotations.karpenter_queue_name }}"
+        - repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+          targetRevision: main
+          ref: values
+      destination:
+        name: "{{ .name }}"
+        # Must match the Pod Identity association in infra/platform/karpenter.tf (kube-system/karpenter).
+        namespace: kube-system
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - ServerSideApply=true
+        retry:
+          limit: 10
+          backoff: {duration: 10s, factor: 2, maxDuration: 5m}
+---
+# NodePool and EC2NodeClass. Their health (Ready condition) is only set once the controller runs, so
+# this wave also waits for Karpenter itself before anything that needs a worker node is created.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: karpenter-nodes
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-7"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+    targetRevision: main
+    path: deploy/platform/manifests/karpenter
+  destination:
+    name: in-cluster
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 5m}

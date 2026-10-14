@@ -1,0 +1,37 @@
+# Turns every optional template on, so `make deploy-lint` renders and schema-checks all of them.
+image:
+  repository: ghcr.io/codewithmuh/tasuki-delivery-platform/example
+  tag: "0.1.0"
+args: [serve]
+metrics:
+  port: 9100
+autoscaling:
+  enabled: true
+ingress:
+  enabled: true
+  host: example.tasuki.example
+env:
+  LOG_LEVEL: info
+secretEnv:
+  EXAMPLE_SECRET:
+    secret: tasuki-app
+    key: EXAMPLE_SECRET
+networkPolicy:
+  allowFrom:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: caller
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - port: 6379
+preSyncJob:
+  enabled: true
+  args: [migrate]
+cronJobs:
+  cleanup:
+    schedule: "0 * * * *"
+    args: [cleanup]

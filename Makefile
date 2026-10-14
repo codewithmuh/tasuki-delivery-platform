@@ -5,10 +5,13 @@ SHELL := bash
 PY := services/api-python
 GO := services/api-go
 
+# Each area (infra, services, deploy, ...) keeps its targets in mk/<area>.mk.
+-include $(wildcard mk/*.mk)
+
 .PHONY: help setup fmt lint test check scan build up down logs clean
 
 help: ## Show available commands
-	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-8s\033[0m %s\n", $$1, $$2}'
+	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
 setup: ## Install dependencies and the git hooks (needs uv, go, pre-commit)
 	cd $(PY) && uv sync
@@ -31,7 +34,8 @@ check: lint test ## Everything CI runs before building images
 
 scan: ## Secret and vulnerability scans (needs gitleaks and trivy)
 	gitleaks git --redact --no-banner .
-	trivy fs --scanners vuln,misconfig,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 .
+	trivy fs --scanners vuln,misconfig,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+		--ignorefile .trivyignore.yaml --skip-dirs '**/.terraform' --skip-dirs '**/node_modules' --skip-dirs '**/.venv' .
 
 build: ## Build all container images
 	docker compose build

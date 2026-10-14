@@ -1,0 +1,35 @@
+# Argo CD manages itself: same chart version and values as bootstrap.sh, so after the first install an
+# Argo CD upgrade is a pull request that changes targetRevision here (and ARGOCD_CHART_VERSION there;
+# `make deploy-lint` fails if the two differ).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+spec:
+  project: platform
+  sources:
+    - repoURL: https://argoproj.github.io/argo-helm
+      chart: argo-cd
+      targetRevision: 10.10.3
+      helm:
+        releaseName: argocd
+        valueFiles:
+          - $values/deploy/bootstrap/argocd-values.yaml
+    - repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+      targetRevision: main
+      ref: values
+  destination:
+    name: in-cluster
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 5m}

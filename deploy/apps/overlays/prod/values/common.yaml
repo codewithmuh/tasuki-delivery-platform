@@ -1,0 +1,5 @@
+# Helm values for every service in tasuki-prod. Promotion = copy the tag that passed in dev.
+image:
+  tag: "0.1.0"
+# Two replicas, spread across zones by the chart: one AZ or one node can go.
+replicas: 2

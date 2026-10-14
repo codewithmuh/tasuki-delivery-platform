@@ -1,0 +1,40 @@
+# A tag like :latest (or no tag, which means :latest) can point at a different image tomorrow, so a
+# rollback or a new node can silently run different code. Every image needs a fixed tag or a digest.
+# Cluster-wide, except the namespaces Kubernetes and Kyverno themselves need to stay up.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: disallow-latest-tag
+  annotations:
+    policies.kyverno.io/title: Disallow latest and untagged images
+    policies.kyverno.io/severity: high
+spec:
+  validationActions: [Deny]
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: [kube-system, kube-public, kube-node-lease, kyverno]
+  # Also check Deployments, StatefulSets, ... so Argo CD's sync fails with this message, instead of a
+  # ReplicaSet quietly failing to create pods.
+  autogen:
+    podControllers:
+      controllers: [deployments, statefulsets, daemonsets, jobs, cronjobs]
+  variables:
+    - name: images
+      expression: >-
+        (object.spec.containers + object.spec.?initContainers.orValue([])).map(c, c.image)
+    # Kyverno's image() parser reports an untagged reference as tag "latest", so one check covers both.
+    - name: mutable
+      expression: >-
+        variables.images.filter(i, !image(i).containsDigest() && image(i).tag() == 'latest')
+  validations:
+    - expression: variables.mutable.size() == 0
+      messageExpression: >-
+        'images need a fixed tag or a digest, never :latest or no tag: ' + variables.mutable.join(', ')

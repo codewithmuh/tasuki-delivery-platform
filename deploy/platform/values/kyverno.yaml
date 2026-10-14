@@ -1,0 +1,35 @@
+# Kyverno (kyverno.github.io/kyverno). The policies are Deny in the Tasuki namespaces, so an admission
+# controller outage blocks pod creation there (not elsewhere: webhooks are scoped per policy).
+# Two replicas keep admission working through a node drain or a restart.
+admissionController:
+  replicas: 2
+  # Chart default: minAvailable 1.
+  podDisruptionBudget:
+    enabled: true
+  container:
+    resources:
+      requests: {cpu: 100m, memory: 128Mi}
+      limits: {memory: 384Mi}
+  serviceMonitor:
+    enabled: true
+
+backgroundController:
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 256Mi}
+  serviceMonitor:
+    enabled: true
+
+cleanupController:
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 128Mi}
+  serviceMonitor:
+    enabled: true
+
+reportsController:
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 256Mi}
+  serviceMonitor:
+    enabled: true

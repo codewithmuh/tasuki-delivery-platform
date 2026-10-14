@@ -1,0 +1,52 @@
+# Argo Rollouts integration for the rollout gate (example; the live copies belong in deploy/).
+#
+# The AnalysisTemplate asks the gate once, before any traffic moves to the canary. The `web` provider reads
+# the gate's JSON decision; `allowed: false` fails the measurement, failureLimit 0 fails the analysis, and a
+# failed analysis aborts the Rollout, so the stable version keeps serving.
+#
+# Assumed: the gate runs as Service `rollout-gate` in namespace `monitoring`, port 8080. Adjust the URL.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: error-budget-gate
+  namespace: tasuki-prod
+spec:
+  args:
+    - name: service # Sloth service name: orders, fleet-state, tracking, dispatch
+    - name: slo # one Sloth SLO name, or "" for every SLO of the service (what the policy freezes on)
+      value: ""
+  metrics:
+    - name: error-budget
+      count: 1 # budgets move over hours; one answer per rollout is enough
+      failureLimit: 0
+      successCondition: result.allowed == true
+      provider:
+        web:
+          url: "http://rollout-gate.monitoring.svc.cluster.local:8080/v1/gate?service={{args.service}}&slo={{args.slo}}"
+          jsonPath: "{$}"
+          timeoutSeconds: 10
+---
+# Canary snippet for a service Rollout: the gate is step 1. Everything after it (weights, pauses, the canary's
+# own health analysis) is up to the service.
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: orders
+  namespace: tasuki-prod
+spec:
+  # selector, template, replicas etc. come from the service's chart and are omitted here.
+  rollbackWindow:
+    revisions: 3 # rolling back to a recent revision skips the steps, so the gate never blocks a rollback
+  strategy:
+    canary:
+      steps:
+        - analysis:
+            templates:
+              - templateName: error-budget-gate
+            args:
+              - name: service
+                value: orders
+        - setWeight: 10
+        - pause: { duration: 5m }
+        - setWeight: 50
+        - pause: { duration: 10m }

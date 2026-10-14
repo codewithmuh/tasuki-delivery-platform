@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: good
+  namespace: tasuki-dev
+spec:
+  selector:
+    matchLabels: {app: good}
+  template:
+    metadata:
+      labels: {app: good}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: app
+          image: ghcr.io/codewithmuh/tasuki-delivery-platform/fleet-ingest:0.1.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          livenessProbe:
+            httpGet: {path: /healthz, port: 8080}
+          readinessProbe:
+            httpGet: {path: /readyz, port: 8080}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bad-no-liveness
+  namespace: tasuki-dev
+spec:
+  selector:
+    matchLabels: {app: bad}
+  template:
+    metadata:
+      labels: {app: bad}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: app
+          image: ghcr.io/codewithmuh/tasuki-delivery-platform/fleet-ingest:0.1.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          readinessProbe:
+            httpGet: {path: /readyz, port: 8080}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bad-sidecar-without-probes
+  namespace: tasuki-dev
+spec:
+  selector:
+    matchLabels: {app: bad2}
+  template:
+    metadata:
+      labels: {app: bad2}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: app
+          image: ghcr.io/codewithmuh/tasuki-delivery-platform/fleet-ingest:0.1.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          livenessProbe:
+            httpGet: {path: /healthz, port: 8080}
+          readinessProbe:
+            httpGet: {path: /readyz, port: 8080}
+        - name: sidecar
+          image: ghcr.io/codewithmuh/tasuki-delivery-platform/sidecar:0.1.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skipped-platform-namespace
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels: {app: other}
+  template:
+    metadata:
+      labels: {app: other}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: app
+          image: quay.io/prometheus/prometheus:v3.7.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}

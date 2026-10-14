@@ -1,0 +1,7 @@
+groups:
+  - name: example
+    rules:
+      - alert: ExampleAlwaysFiring
+        expr: vector(1)
+        annotations:
+          summary: "Templates like {{ $labels.instance }} pass through untouched."

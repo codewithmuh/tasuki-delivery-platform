@@ -1,0 +1,43 @@
+# orders dispatch consumer: same image as the orders API, a different command. Consumes dispatch.events and
+# moves orders through their state machine (consumer group "orders").
+# It takes no traffic: port 9100 only serves /healthz, /readyz and /metrics (WORKER_METRICS_PORT).
+image:
+  repository: ghcr.io/codewithmuh/tasuki-delivery-platform/orders
+args: [python, manage.py, consume_dispatch_events]
+port: 9100
+
+podSecurityContext:
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+
+env:
+  LOG_LEVEL: info
+  WORKER_METRICS_PORT: "9100"
+  KAFKA_BROKERS: tasuki-kafka-bootstrap:9092
+# Django refuses to start without all of these, whichever process it is.
+secretEnv:
+  DATABASE_URL: {secret: orders-db-app, key: uri}
+  DJANGO_SECRET_KEY: {secret: tasuki-app, key: DJANGO_SECRET_KEY}
+  ORDERS_FIELD_KEY: {secret: tasuki-app, key: ORDERS_FIELD_KEY}
+  COURIER_TOKEN_SECRET: {secret: tasuki-app, key: COURIER_TOKEN_SECRET}
+  TRACKING_TOKEN_SECRET: {secret: tasuki-app, key: TRACKING_TOKEN_SECRET}
+
+resources:
+  requests: {cpu: 50m, memory: 128Mi}
+  limits: {memory: 256Mi}
+
+networkPolicy:
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: orders-db
+      ports:
+        - port: 5432
+    - to:
+        - podSelector:
+            matchLabels:
+              strimzi.io/cluster: tasuki
+      ports:
+        - port: 9092

@@ -1,0 +1,30 @@
+# fleet-ingest (services/fleet): authenticated GPS batches from couriers -> courier.locations.
+# Ready as soon as it starts, even with Kafka down: it sheds load with 503 + Retry-After instead.
+image:
+  repository: ghcr.io/codewithmuh/tasuki-delivery-platform/fleet-ingest
+port: 8080
+
+env:
+  LOG_LEVEL: info
+  SHUTDOWN_TIMEOUT: 20s
+  KAFKA_BROKERS: tasuki-kafka-bootstrap:9092
+secretEnv:
+  COURIER_TOKEN_SECRET: {secret: tasuki-app, key: COURIER_TOKEN_SECRET}
+
+resources:
+  requests: {cpu: 50m, memory: 64Mi}
+  limits: {memory: 128Mi}
+
+networkPolicy:
+  allowFrom:
+    # Courier apps, played by the simulator.
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: simulator
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              strimzi.io/cluster: tasuki
+      ports:
+        - port: 9092

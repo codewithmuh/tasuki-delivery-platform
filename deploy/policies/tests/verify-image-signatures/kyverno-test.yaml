@@ -1,0 +1,15 @@
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: verify-image-signatures
+policies:
+  - ../../verify-image-signatures.yaml
+resources:
+  - resources.yaml
+variables: ../values.yaml
+results:
+  # Images outside ghcr.io/codewithmuh/tasuki-delivery-platform/* are not checked, so the pod passes.
+  - policy: verify-image-signatures
+    kind: Pod
+    resources: [tasuki-dev/third-party-image]
+    result: pass

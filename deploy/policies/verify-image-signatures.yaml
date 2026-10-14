@@ -1,0 +1,62 @@
+# Only images built and signed by this repository's release workflow may run. The workflow signs each
+# image digest with cosign keyless signing: the certificate says which workflow, on which ref, in which
+# repository produced it, and Rekor (the transparency log) records it.
+#
+# Identity: release.yml runs on pushes to main (release-please creates the tag in the same run), so the
+# certificate names refs/heads/main. A tag-triggered release workflow would name refs/tags/vX.Y.Z; both are
+# accepted so the policy survives that change.
+#
+# Audit for now: results land in PolicyReports and nothing is blocked. Switch validationActions to [Deny]
+# (and failurePolicy to Fail) once (1) release.yml publishes and signs every service image, (2) the
+# PolicyReports in tasuki-dev and tasuki-prod show no failures for a full release cycle, and (3) the Kyverno
+# admission controller runs at least 2 replicas, because Enforce makes it a hard dependency of every pod start.
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
+metadata:
+  name: verify-image-signatures
+  annotations:
+    policies.kyverno.io/title: Verify Tasuki image signatures (cosign keyless)
+    policies.kyverno.io/severity: high
+spec:
+  validationActions: [Audit]
+  failurePolicy: Ignore
+  webhookConfiguration:
+    timeoutSeconds: 15
+  evaluation:
+    # Verification calls GHCR and Sigstore; do it at admission only, not in periodic background scans.
+    background:
+      enabled: false
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: [kube-system, kube-public, kube-node-lease, kyverno]
+  # The admission webhook resolves each tag to its digest, verifies the digest, and rewrites the pod to run
+  # exactly that digest, so a tag moved after the check cannot change what runs.
+  validationConfigurations:
+    mutateDigest: true
+    verifyDigest: true
+    required: true
+  # Only our own images are checked; third-party images (Kafka, Valkey, ...) are out of scope.
+  matchImageReferences:
+    - glob: ghcr.io/codewithmuh/tasuki-delivery-platform/*
+  attestors:
+    - name: release
+      cosign:
+        keyless:
+          identities:
+            - issuer: https://token.actions.githubusercontent.com
+              subjectRegExp: '^https://github\.com/codewithmuh/tasuki-delivery-platform/\.github/workflows/release\.yml@refs/(heads/main|tags/v[0-9]+\.[0-9]+\.[0-9]+)$'
+        ctlog:
+          url: https://rekor.sigstore.dev
+  validations:
+    - expression: >-
+        images.containers.map(i, verifyImageSignatures(i, [attestors.release])).all(n, n > 0)
+      message: >-
+        image is not signed by github.com/codewithmuh/tasuki-delivery-platform/.github/workflows/release.yml

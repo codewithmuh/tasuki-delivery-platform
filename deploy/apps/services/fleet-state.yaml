@@ -1,0 +1,31 @@
+# fleet-state (services/fleet): latest position per courier in Redis, rebuilt from courier.locations.
+# Not ready until the Redis rebuild from Kafka has finished. Nobody calls it; it only consumes.
+image:
+  repository: ghcr.io/codewithmuh/tasuki-delivery-platform/fleet-state
+port: 8080
+
+env:
+  LOG_LEVEL: info
+  SHUTDOWN_TIMEOUT: 20s
+  KAFKA_BROKERS: tasuki-kafka-bootstrap:9092
+  KAFKA_GROUP: fleet-state
+  REDIS_URL: redis://redis:6379/0
+
+resources:
+  requests: {cpu: 50m, memory: 64Mi}
+  limits: {memory: 128Mi}
+
+networkPolicy:
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              strimzi.io/cluster: tasuki
+      ports:
+        - port: 9092
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - port: 6379

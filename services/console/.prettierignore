@@ -1,0 +1,5 @@
+dist
+coverage
+package-lock.json
+# Byte-for-byte copy of contracts/data/wards.json (a test checks they match).
+src/data/wards.json

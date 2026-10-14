@@ -1,0 +1,12 @@
+apiVersion: v2
+name: service
+description: >-
+  One chart for every Tasuki service. A release is one process type (one Deployment):
+  orders, orders-outbox-relay, fleet-ingest, ... Per-service settings live in deploy/apps/.
+type: application
+# Bump on every template change; Argo CD renders the chart straight from git, so this is documentation.
+version: 0.1.0
+kubeVersion: ">=1.33.0-0"
+home: https://github.com/codewithmuh/tasuki-delivery-platform
+maintainers:
+  - name: codewithmuh

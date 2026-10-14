@@ -1,0 +1,55 @@
+# AppProjects: what each group of Applications may deploy, from where, and to where.
+---
+# Cluster add-ons: they install CRDs, ClusterRoles and webhooks, so they need cluster-scoped access,
+# but only from this repo and the chart registries listed here.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+spec:
+  description: Cluster add-ons managed by the platform team
+  sourceRepos:
+    - https://github.com/codewithmuh/tasuki-delivery-platform.git
+    - https://argoproj.github.io/argo-helm
+    - public.ecr.aws/karpenter
+    - https://aws.github.io/eks-charts
+    - https://kubernetes-sigs.github.io/metrics-server/
+    - https://charts.external-secrets.io
+    - https://kyverno.github.io/kyverno/
+    - https://prometheus-community.github.io/helm-charts
+    - https://grafana-community.github.io/helm-charts
+    - https://open-telemetry.github.io/opentelemetry-helm-charts
+    - https://strimzi.io/charts/
+    - https://cloudnative-pg.github.io/charts
+  destinations:
+    - name: in-cluster
+      namespace: "*"
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+---
+# Tasuki's own services and the per-environment namespaces. Only this repo, only the two environment
+# namespaces, and the only cluster-scoped object allowed is the Namespace itself, so an app change can
+# never create a ClusterRoleBinding or a webhook.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: tasuki
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+spec:
+  description: Tasuki services and their per-environment data stores
+  sourceRepos:
+    - https://github.com/codewithmuh/tasuki-delivery-platform.git
+  destinations:
+    - name: in-cluster
+      namespace: tasuki-dev
+    - name: in-cluster
+      namespace: tasuki-prod
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace

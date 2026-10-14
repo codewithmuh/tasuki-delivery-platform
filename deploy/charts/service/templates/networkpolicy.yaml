@@ -1,0 +1,71 @@
+{{- if .Values.networkPolicy.enabled }}
+# Default deny for this service's pods, in both directions, plus the traffic it is known to need.
+# The namespace also denies all ingress by default (deploy/apps/base/network-policies.yaml).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "service.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "service.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "service.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # Prometheus scrapes /metrics.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.monitoringNamespace }}
+      ports:
+        - port: {{ ternary "metrics" "http" (not (empty .Values.metrics.port)) }}
+    {{- with .Values.networkPolicy.allowFrom }}
+    # Callers inside the cluster.
+    - from:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - port: http
+    {{- end }}
+    {{- if .Values.ingress.enabled }}
+    # The ALB (target type ip) connects from the public subnets.
+    - from:
+        {{- range .Values.ingress.albSourceCidrs }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+      ports:
+        - port: http
+    {{- end }}
+  egress:
+    # DNS through CoreDNS.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    {{- if .Values.otlp.endpoint }}
+    # OTLP to the OpenTelemetry collector (gRPC and HTTP).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.monitoringNamespace }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.otlp.collectorSelector | nindent 14 }}
+      ports:
+        - port: 4317
+        - port: 4318
+    {{- end }}
+    {{- with .Values.networkPolicy.egress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

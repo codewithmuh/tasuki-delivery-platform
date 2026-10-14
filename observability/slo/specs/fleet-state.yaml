@@ -1,0 +1,34 @@
+# SLO for fleet-state (docs/design.md §9, "Location freshness"). Rules: `make slo-generate`.
+#
+# SLI input: `fleet_state_freshness_seconds` (services/fleet/internal/state/processor.go), a histogram observed
+# once per live GPS point written to Redis, with `now - received_at` (received_at is stamped by fleet-ingest, see
+# contracts/events/courier-location.v1). Redis rebuilds are not observed. Prometheus 3 stores bucket bounds as
+# floats, so the 2 s bucket is le="2.0" whatever the client exposes.
+version: "prometheus/v1"
+service: "fleet-state"
+slos:
+  - name: "location-freshness"
+    objective: 99
+    description: "Share of GPS points visible in Redis within 2 s of receipt (28 days)."
+    sli:
+      events:
+        error_query: |
+          sum(rate(fleet_state_freshness_seconds_count{namespace="tasuki-prod"}[{{.window}}]))
+          -
+          sum(rate(fleet_state_freshness_seconds_bucket{namespace="tasuki-prod",le="2.0"}[{{.window}}]))
+        total_query: |
+          sum(rate(fleet_state_freshness_seconds_count{namespace="tasuki-prod"}[{{.window}}]))
+          > 0
+    alerting:
+      name: FleetStateLocationFreshnessBudgetBurn
+      labels:
+        category: freshness
+      annotations:
+        description: "Courier positions reach Redis later than 2 s too often; dispatch matches on stale positions."
+        runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-fleet-state-location-freshness.md"
+      page_alert:
+        labels:
+          severity: page
+      ticket_alert:
+        labels:
+          severity: ticket

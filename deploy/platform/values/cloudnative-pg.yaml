@@ -1,0 +1,10 @@
+# CloudNativePG operator (cloudnative-pg.github.io/charts). PostgreSQL clusters: deploy/apps/base/postgres.yaml.
+replicaCount: 1
+resources:
+  requests: {cpu: 50m, memory: 128Mi}
+  limits: {memory: 256Mi}
+monitoring:
+  podMonitorEnabled: true
+  grafanaDashboard:
+    create: true
+    namespace: monitoring

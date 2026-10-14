@@ -1,0 +1,36 @@
+# One collector per node: OTLP from services and container logs in; Tempo, Prometheus and Loki out.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: opentelemetry-collector
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    - repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+      chart: opentelemetry-collector
+      targetRevision: 0.176.0
+      helm:
+        releaseName: opentelemetry-collector
+        valueFiles:
+          - $values/deploy/platform/values/opentelemetry-collector.yaml
+    - repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+      targetRevision: main
+      ref: values
+  destination:
+    name: in-cluster
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 5m}

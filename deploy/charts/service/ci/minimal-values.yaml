@@ -1,0 +1,4 @@
+# Smallest valid release: only the two required values.
+image:
+  repository: ghcr.io/codewithmuh/tasuki-delivery-platform/example
+  tag: "0.1.0"

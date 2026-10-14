@@ -1,0 +1,28 @@
+# The one Application applied by hand (bootstrap.sh). Everything else is declared in deploy/platform/
+# and created by this app: an "app of apps". Children are ordered with argocd.argoproj.io/sync-wave
+# (see deploy/README.md for the table).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  # No resources-finalizer on purpose: deleting the root app must not cascade into the whole platform.
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+    targetRevision: main
+    path: deploy/platform
+  destination:
+    name: in-cluster
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

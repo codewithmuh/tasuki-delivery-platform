@@ -1,0 +1,31 @@
+# Grafana dashboards from observability/dashboards/. That directory's kustomization.yaml turns each JSON
+# file into a ConfigMap labelled grafana_dashboard=1 in the monitoring namespace, which the Grafana sidecar
+# loads (values/kube-prometheus-stack.yaml). Last wave: nothing waits for dashboards.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: grafana-dashboards
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+    targetRevision: main
+    path: observability/dashboards
+  destination:
+    name: in-cluster
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      # Dashboard JSON easily exceeds the 256 KiB last-applied annotation of client-side apply.
+      - ServerSideApply=true
+    retry:
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 5m}

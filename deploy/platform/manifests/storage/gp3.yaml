@@ -1,0 +1,19 @@
+# gp3: cheaper than gp2 per GB, with 3,000 IOPS baseline regardless of size.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  encrypted: "true"
+  # The EBS CSI driver puts these on every volume it creates (cost reports, leftover checks).
+  tagSpecification_1: "Project=tasuki"
+  tagSpecification_2: "ManagedBy=ebs-csi"
+# Create the volume only once the pod is scheduled, in that pod's AZ (EBS volumes are zonal).
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+# Dev cluster: a deleted PVC deletes its volume, so `make down` leaves nothing behind.
+reclaimPolicy: Delete

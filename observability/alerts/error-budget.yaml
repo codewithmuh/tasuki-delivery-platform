@@ -1,0 +1,31 @@
+# Error-budget policy triggers (docs/slo/error-budget-policy.md). They read the Sloth recording rule
+# slo:period_error_budget_remaining:ratio (observability/slo/generated), which is 1 at a clean start and goes
+# below 0 when the budget is overspent. `make slo-check` validates and unit-tests this file.
+groups:
+  - name: tasuki-error-budget
+    rules:
+      # Policy: 75 % burned → reliability work goes to the top of the service's backlog.
+      - alert: SLOErrorBudgetLow
+        expr: slo:period_error_budget_remaining:ratio <= 0.25 > 0
+        for: 15m
+        labels:
+          severity: ticket
+          category: error-budget
+        annotations:
+          title: "{{ $labels.sloth_service }} {{ $labels.sloth_slo }}: less than 25 % of the error budget left"
+          summary: "{{ $value | humanizePercentage }} of the 28-day error budget remains."
+          description: "Prioritise reliability work for this service (error-budget policy, 75 % burned)."
+          runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/error-budget-low.md"
+
+      # Policy: 100 % burned → feature freeze for the service; the rollout gate blocks its canaries.
+      - alert: SLOErrorBudgetExhausted
+        expr: slo:period_error_budget_remaining:ratio <= 0
+        for: 15m
+        labels:
+          severity: ticket
+          category: error-budget
+        annotations:
+          title: "{{ $labels.sloth_service }} {{ $labels.sloth_slo }}: error budget exhausted"
+          summary: "{{ $value | humanizePercentage }} of the 28-day error budget remains."
+          description: "Feature freeze for this service; the rollout gate now blocks its canaries."
+          runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/error-budget-exhausted.md"

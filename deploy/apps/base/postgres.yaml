@@ -1,0 +1,35 @@
+# PostgreSQL for orders, run by CloudNativePG. The operator creates the Secret orders-db-app
+# (key "uri" = DATABASE_URL) and the Services orders-db-rw (primary) and orders-db-r / -ro.
+#
+# Dev: 1 instance. Dev has no SLO, its data is synthetic and the simulator re-creates it, so a standby
+# would double the cost for nothing. Prod overlay: 2 instances (primary + streaming standby in another
+# AZ), which is what the "PostgreSQL primary fails" game day (design.md §10) needs.
+#
+# Not yet: backups and point-in-time recovery to S3 (the Barman Cloud plugin, an S3 bucket and a Pod
+# Identity role from Terraform). Until then, losing the volume loses the data.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: orders-db
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.6-minimal-trixie
+  # Restart/switchover for minor upgrades without waiting for a human.
+  primaryUpdateStrategy: unsupervised
+  bootstrap:
+    initdb:
+      database: orders
+      owner: orders
+  storage:
+    storageClass: gp3
+    size: 5Gi
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 512Mi}
+  postgresql:
+    parameters:
+      shared_buffers: 64MB
+  # Instances on different nodes, preferably in different zones.
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: topology.kubernetes.io/zone

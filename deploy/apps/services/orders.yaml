@@ -1,0 +1,61 @@
+# orders API: Django + gunicorn (services/orders). Merchants and couriers call it; it writes orders and
+# their outbox events to PostgreSQL in one transaction. The relay and the consumer are separate releases
+# of the same image (orders-outbox-relay.yaml, orders-dispatch-consumer.yaml).
+image:
+  repository: ghcr.io/codewithmuh/tasuki-delivery-platform/orders
+port: 8000
+
+podSecurityContext:
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+
+env:
+  LOG_LEVEL: info
+  WEB_CONCURRENCY: "2"
+  DISPATCH_URL: http://dispatch
+  KAFKA_BROKERS: tasuki-kafka-bootstrap:9092
+secretEnv:
+  DATABASE_URL: {secret: orders-db-app, key: uri}
+  DJANGO_SECRET_KEY: {secret: tasuki-app, key: DJANGO_SECRET_KEY}
+  ORDERS_FIELD_KEY: {secret: tasuki-app, key: ORDERS_FIELD_KEY}
+  COURIER_TOKEN_SECRET: {secret: tasuki-app, key: COURIER_TOKEN_SECRET}
+  TRACKING_TOKEN_SECRET: {secret: tasuki-app, key: TRACKING_TOKEN_SECRET}
+  # The seeding API (POST /v1/admin/*). The simulator is the only source of merchants and couriers in
+  # both environments, so it is on in both; remove the key from tasuki/<env>/app to switch it off.
+  ADMIN_TOKEN: {secret: tasuki-app, key: ADMIN_TOKEN}
+
+resources:
+  requests: {cpu: 100m, memory: 256Mi}
+  limits: {memory: 512Mi}
+
+# Schema migrations before every sync (Django has no migration lock, so never at pod start).
+preSyncJob:
+  enabled: true
+  args: [python, manage.py, migrate, --noinput]
+
+cronJobs:
+  purge-expired:
+    schedule: "0 * * * *"
+    args: [python, manage.py, purge_expired]
+
+networkPolicy:
+  allowFrom:
+    # Merchants and couriers, played by the simulator.
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: simulator
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: orders-db
+      ports:
+        - port: 5432
+    # ETA and courier supply for quotes.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: dispatch
+      ports:
+        - port: 8080

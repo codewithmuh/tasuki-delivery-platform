@@ -1,0 +1,25 @@
+{{- if .Values.preSyncJob.enabled }}
+# Runs before Argo CD applies anything else in this Application, and is deleted once it succeeds.
+# It uses the namespace's "default" ServiceAccount: on the first sync this hook runs before the release's
+# own ServiceAccount exists, and a migration needs no Kubernetes or AWS identity (no token is mounted).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "service.name" . }}-presync
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "service.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+spec:
+  backoffLimit: {{ .Values.preSyncJob.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.preSyncJob.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "service.labels" . | nindent 8 }}
+        app.kubernetes.io/component: presync
+    spec:
+      {{- include "service.podSpec" (dict "root" . "long" false "serviceAccount" "default" "args" (required "preSyncJob.args is required" .Values.preSyncJob.args)) | nindent 6 }}
+{{- end }}

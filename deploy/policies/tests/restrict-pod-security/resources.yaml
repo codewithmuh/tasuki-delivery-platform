@@ -1,0 +1,173 @@
+# Each bad pod below differs from this one in exactly one field. Pod-level runAsNonRoot, container-level
+# everything else: what deploy/charts/service renders.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: good
+  namespace: tasuki-dev
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+    - name: app
+      image: ghcr.io/codewithmuh/tasuki-delivery-platform/tracking:0.1.0
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: good-container-level-non-root
+  namespace: tasuki-dev
+spec:
+  securityContext:
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+    - name: app
+      image: ghcr.io/codewithmuh/tasuki-delivery-platform/tracking:0.1.0
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bad-container-overrides-root
+  namespace: tasuki-dev
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+    - name: app
+      image: ghcr.io/codewithmuh/tasuki-delivery-platform/tracking:0.1.0
+      securityContext:
+        runAsNonRoot: false
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bad-writable-root
+  namespace: tasuki-dev
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+    - name: app
+      image: ghcr.io/codewithmuh/tasuki-delivery-platform/tracking:0.1.0
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: false
+        capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bad-capabilities
+  namespace: tasuki-dev
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+    - name: app
+      image: ghcr.io/codewithmuh/tasuki-delivery-platform/tracking:0.1.0
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: {drop: [NET_RAW]}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bad-privilege-escalation-default
+  namespace: tasuki-dev
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+    - name: app
+      image: ghcr.io/codewithmuh/tasuki-delivery-platform/tracking:0.1.0
+      securityContext:
+        readOnlyRootFilesystem: true
+        capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bad-init-container
+  namespace: tasuki-dev
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    seccompProfile: {type: RuntimeDefault}
+  initContainers:
+    - name: init
+      image: ghcr.io/codewithmuh/tasuki-delivery-platform/tracking:0.1.0
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+  containers:
+    - name: app
+      image: ghcr.io/codewithmuh/tasuki-delivery-platform/tracking:0.1.0
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: {drop: [ALL]}
+---
+# Platform namespaces are out of scope (their charts are configured in deploy/platform/values/).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: skipped-platform-namespace
+  namespace: monitoring
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+    - name: app
+      image: ghcr.io/codewithmuh/tasuki-delivery-platform/tracking:0.1.0
+      securityContext:
+        readOnlyRootFilesystem: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bad-deployment
+  namespace: tasuki-dev
+spec:
+  selector:
+    matchLabels: {app: x}
+  template:
+    metadata:
+      labels: {app: x}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: app
+          image: ghcr.io/codewithmuh/tasuki-delivery-platform/tracking:0.1.0
+          securityContext:
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}

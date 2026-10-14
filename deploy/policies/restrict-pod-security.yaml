@@ -1,0 +1,53 @@
+# The container hardening every Tasuki service promises (docs/architecture.md, runtime contract).
+# Pod Security Admission (namespace label pod-security.kubernetes.io/enforce=restricted) already
+# rejects most of this, but only at Pod creation, where a Deployment just stops making progress. This
+# policy rejects the Deployment itself at sync time with a clear message, and adds
+# readOnlyRootFilesystem, which the restricted profile does not cover.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: restrict-pod-security
+  annotations:
+    policies.kyverno.io/title: Restricted container security context
+    policies.kyverno.io/severity: high
+spec:
+  validationActions: [Deny]
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+    namespaceSelector:
+      matchLabels:
+        app.kubernetes.io/part-of: tasuki
+  autogen:
+    podControllers:
+      controllers: [deployments, statefulsets, daemonsets, jobs, cronjobs]
+  variables:
+    - name: containers
+      expression: object.spec.containers + object.spec.?initContainers.orValue([])
+    # runAsNonRoot may be set once for the pod, or per container (a container setting wins).
+    - name: podNonRoot
+      expression: object.spec.?securityContext.?runAsNonRoot.orValue(false)
+  validations:
+    - expression: >-
+        variables.containers.all(c, c.?securityContext.?runAsNonRoot.orValue(variables.podNonRoot) == true)
+      messageExpression: >-
+        'runAsNonRoot must be true: ' + variables.containers.filter(c,
+          c.?securityContext.?runAsNonRoot.orValue(variables.podNonRoot) != true).map(c, c.name).join(', ')
+    - expression: >-
+        variables.containers.all(c, c.?securityContext.?allowPrivilegeEscalation.orValue(true) == false)
+      messageExpression: >-
+        'allowPrivilegeEscalation must be false: ' + variables.containers.filter(c,
+          c.?securityContext.?allowPrivilegeEscalation.orValue(true) != false).map(c, c.name).join(', ')
+    - expression: >-
+        variables.containers.all(c, c.?securityContext.?capabilities.?drop.orValue([]).exists(x, x == 'ALL'))
+      messageExpression: >-
+        'capabilities.drop must include ALL: ' + variables.containers.filter(c,
+          !c.?securityContext.?capabilities.?drop.orValue([]).exists(x, x == 'ALL')).map(c, c.name).join(', ')
+    - expression: >-
+        variables.containers.all(c, c.?securityContext.?readOnlyRootFilesystem.orValue(false) == true)
+      messageExpression: >-
+        'readOnlyRootFilesystem must be true (mount an emptyDir for scratch space): ' + variables.containers.filter(c,
+          c.?securityContext.?readOnlyRootFilesystem.orValue(false) != true).map(c, c.name).join(', ')

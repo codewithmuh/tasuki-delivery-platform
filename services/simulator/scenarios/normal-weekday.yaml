@@ -1,0 +1,67 @@
+# A normal weekday across all 23 wards at one-tenth of the design's scale (docs/design.md §4):
+# about 5,200 orders a day with a 600 orders/h lunch peak, served by 400 couriers on shifts.
+# Multiply couriers.count and every per_hour by 10 to reproduce the design's peak load
+# (6,000 orders/h, 3,000 couriers, about 750 GPS points/s).
+name: normal-weekday
+description: Steady weekday demand with lunch (11:30–13:30) and dinner (18:00–20:30) peaks.
+seed: 20261014
+duration: 0s # run until stopped
+
+clock:
+  # start: "11:00"  # uncomment to begin at a fixed time of day instead of the real time in Tokyo
+  speedup: 1
+
+wards: [chiyoda, chuo, minato, shinjuku, bunkyo, taito, sumida, koto, shinagawa, meguro, ota, setagaya,
+        shibuya, nakano, suginami, toshima, kita, arakawa, itabashi, nerima, adachi, katsushika, edogawa]
+ward_weights: # busier business and nightlife wards; the rest weigh 1
+  minato: 1.5
+  shibuya: 1.5
+  shinjuku: 1.5
+  chiyoda: 1.2
+  chuo: 1.2
+  setagaya: 1.3
+ward_radius_m: 1500
+merchants: 12
+stores_per_ward: 4
+
+couriers:
+  count: 400
+  scooter_share: 0.3
+  bicycle_kmh: 15
+  scooter_kmh: 25
+  shifts:
+    - { start: "10:30", end: "14:30", share: 0.35 } # lunch
+    - { start: "17:00", end: "21:30", share: 0.35 } # dinner
+    - { start: "09:00", end: "21:00", share: 0.30 } # full day
+  accept:
+    probability: 0.95       # for a store next door
+    halving_distance_m: 2000 # every 2 km to the store halves the chance
+  think_time: { min: 2s, max: 8s }
+
+demand:
+  # Orders per hour for the whole simulated area; straight lines between points, wrapping at midnight.
+  curve:
+    - { at: "00:00", per_hour: 20 }
+    - { at: "06:00", per_hour: 10 }
+    - { at: "08:00", per_hour: 80 }
+    - { at: "10:30", per_hour: 200 }
+    - { at: "11:30", per_hour: 520 } # lunch peak 11:30–13:30
+    - { at: "12:00", per_hour: 600 }
+    - { at: "13:00", per_hour: 600 }
+    - { at: "13:30", per_hour: 450 }
+    - { at: "15:00", per_hour: 200 }
+    - { at: "17:00", per_hour: 250 }
+    - { at: "18:00", per_hour: 480 } # dinner peak 18:00–20:30
+    - { at: "19:00", per_hour: 560 }
+    - { at: "20:30", per_hour: 420 }
+    - { at: "22:00", per_hour: 150 }
+    - { at: "23:30", per_hour: 40 }
+  prep_time: { min: 5m, max: 15m }
+  max_in_flight: 200
+
+weather: [] # a dry day
+
+gps:
+  moving_interval: 4s
+  idle_interval: 15s
+  noise_m: 5

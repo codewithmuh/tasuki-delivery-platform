@@ -1,0 +1,38 @@
+# SLO for dispatch (docs/design.md §9, "Dispatch speed"). Rules: `make slo-generate`.
+#
+# SLI input (agreed with the dispatch service): `dispatch_assignment_duration_seconds{outcome}`, a histogram observed
+# once per on-demand order, timed from OrderConfirmed.occurred_at, at CourierAssigned (outcome="assigned") or at the
+# first NoCourierAvailable (outcome="no_courier"); see contracts/events/dispatch-event.v1. Outbox and Kafka delays
+# therefore count against the SLO.
+# Good = assigned within 60 s. The total counts every outcome, so a no-courier order is always bad, even one that
+# ends in under 60 s (for example, every courier declines quickly). The 60 s bucket is le="60.0" in Prometheus 3.
+# "Operating hours" needs no filter: no orders, no events.
+# When scheduled orders arrive (P3), add a `product="on_demand"` label and filter on it.
+version: "prometheus/v1"
+service: "dispatch"
+slos:
+  - name: "assignment-speed"
+    objective: 95
+    description: "Share of on-demand orders with an accepted courier within 60 s of confirmation (28 days)."
+    sli:
+      events:
+        error_query: |
+          sum(rate(dispatch_assignment_duration_seconds_count{namespace="tasuki-prod"}[{{.window}}]))
+          -
+          sum(rate(dispatch_assignment_duration_seconds_bucket{namespace="tasuki-prod",outcome="assigned",le="60.0"}[{{.window}}]))
+        total_query: |
+          sum(rate(dispatch_assignment_duration_seconds_count{namespace="tasuki-prod"}[{{.window}}]))
+          > 0
+    alerting:
+      name: DispatchAssignmentSpeedBudgetBurn
+      labels:
+        category: speed
+      annotations:
+        description: "Too many on-demand orders wait more than 60 s for an accepted courier."
+        runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-dispatch-assignment-speed.md"
+      page_alert:
+        labels:
+          severity: page
+      ticket_alert:
+        labels:
+          severity: ticket

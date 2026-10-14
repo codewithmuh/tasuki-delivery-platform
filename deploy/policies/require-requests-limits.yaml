@@ -1,0 +1,37 @@
+# Requests let the scheduler (and Karpenter) size nodes correctly; a memory limit stops one leaking pod
+# from taking down a node. CPU limits are deliberately not required: they only cause throttling.
+# Tasuki namespaces only (labelled app.kubernetes.io/part-of=tasuki); platform charts are sized in their values.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: require-requests-limits
+  annotations:
+    policies.kyverno.io/title: Require CPU and memory requests and a memory limit
+    policies.kyverno.io/severity: medium
+spec:
+  validationActions: [Deny]
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+    namespaceSelector:
+      matchLabels:
+        app.kubernetes.io/part-of: tasuki
+  autogen:
+    podControllers:
+      controllers: [deployments, statefulsets, daemonsets, jobs, cronjobs]
+  variables:
+    - name: missing
+      expression: >-
+        (object.spec.containers + object.spec.?initContainers.orValue([])).filter(c,
+          !c.?resources.?requests.?cpu.hasValue() ||
+          !c.?resources.?requests.?memory.hasValue() ||
+          !c.?resources.?limits.?memory.hasValue()
+        ).map(c, c.name)
+  validations:
+    - expression: variables.missing.size() == 0
+      messageExpression: >-
+        'containers need resources.requests.cpu, resources.requests.memory and resources.limits.memory: ' +
+        variables.missing.join(', ')

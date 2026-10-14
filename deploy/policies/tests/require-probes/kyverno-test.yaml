@@ -1,0 +1,22 @@
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: require-probes
+policies:
+  - ../../require-probes.yaml
+resources:
+  - resources.yaml
+variables: ../values.yaml
+results:
+  - policy: require-probes
+    kind: Deployment
+    resources: [tasuki-dev/good]
+    result: pass
+  - policy: require-probes
+    kind: Deployment
+    resources: [tasuki-dev/bad-no-liveness, tasuki-dev/bad-sidecar-without-probes]
+    result: fail
+  - policy: require-probes
+    kind: Deployment
+    resources: [monitoring/skipped-platform-namespace]
+    result: skip

@@ -1,0 +1,18 @@
+{{- if .Values.metrics.serviceMonitor.enabled }}
+# Prometheus adds namespace, service and pod labels to every series; the SLO rules select on them.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "service.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "service.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "service.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: {{ ternary "metrics" "http" (not (empty .Values.metrics.port)) }}
+      path: {{ .Values.metrics.path }}
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+{{- end }}

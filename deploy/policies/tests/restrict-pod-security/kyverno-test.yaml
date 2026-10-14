@@ -1,0 +1,31 @@
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: restrict-pod-security
+policies:
+  - ../../restrict-pod-security.yaml
+resources:
+  - resources.yaml
+variables: ../values.yaml
+results:
+  - policy: restrict-pod-security
+    kind: Pod
+    resources: [tasuki-dev/good, tasuki-dev/good-container-level-non-root]
+    result: pass
+  - policy: restrict-pod-security
+    kind: Pod
+    resources:
+      - tasuki-dev/bad-container-overrides-root
+      - tasuki-dev/bad-writable-root
+      - tasuki-dev/bad-capabilities
+      - tasuki-dev/bad-privilege-escalation-default
+      - tasuki-dev/bad-init-container
+    result: fail
+  - policy: restrict-pod-security
+    kind: Pod
+    resources: [monitoring/skipped-platform-namespace]
+    result: skip
+  - policy: restrict-pod-security
+    kind: Deployment
+    resources: [tasuki-dev/bad-deployment]
+    result: fail

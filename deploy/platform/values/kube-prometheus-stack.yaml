@@ -1,0 +1,102 @@
+# kube-prometheus-stack (prometheus-community). One Prometheus for the whole cluster; dev sizing.
+
+# CRDs come from the prometheus-operator-crds Application (same operator version, v0.94.1).
+crds:
+  enabled: false
+
+# EKS runs etcd, the scheduler and the controller manager for us: there is nothing to scrape, and the
+# default rules would alert that they are "down". kube-proxy only listens on localhost on EKS.
+kubeEtcd:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeProxy:
+  enabled: false
+defaultRules:
+  rules:
+    etcd: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubeControllerManager: false
+    kubeProxy: false
+    windows: false
+
+prometheusOperator:
+  # The admission webhook only validates PrometheusRule syntax. Our rules are checked with promtool in CI
+  # (mk/slo.mk), so the webhook and its certificate Jobs are moving parts we do not need.
+  admissionWebhooks:
+    enabled: false
+  tls:
+    enabled: false
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 256Mi}
+
+prometheus:
+  prometheusSpec:
+    # Pick up every ServiceMonitor, PodMonitor and PrometheusRule in every namespace, not only the ones
+    # labelled for this Helm release: services and the SLO rules ship their own.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    scrapeConfigSelectorNilUsesHelmValues: false
+    # The OpenTelemetry collector pushes application metrics here over OTLP (/api/v1/otlp).
+    enableOTLPReceiver: true
+    # 28-day SLO windows are computed from recording rules; raw data is kept for a week.
+    retention: 7d
+    retentionSize: 15GB
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 20Gi
+    resources:
+      requests: {cpu: 200m, memory: 1Gi}
+      limits: {memory: 2Gi}
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests: {cpu: 10m, memory: 32Mi}
+      limits: {memory: 128Mi}
+
+grafana:
+  admin:
+    existingSecret: grafana-admin
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 256Mi}
+  sidecar:
+    dashboards:
+      # Dashboards from ConfigMaps labelled grafana_dashboard=1 in any namespace (Strimzi, CloudNativePG, ...).
+      searchNamespace: ALL
+  additionalDataSources:
+    - name: Loki
+      uid: loki
+      type: loki
+      url: http://loki.monitoring:3100
+    - name: Tempo
+      uid: tempo
+      type: tempo
+      url: http://tempo.monitoring:3200
+      jsonData:
+        # Jump from a span to the logs of the same trace.
+        tracesToLogsV2:
+          datasourceUid: loki
+          filterByTraceID: true
+
+kube-state-metrics:
+  resources:
+    requests: {cpu: 10m, memory: 64Mi}
+    limits: {memory: 128Mi}
+
+prometheus-node-exporter:
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {memory: 64Mi}

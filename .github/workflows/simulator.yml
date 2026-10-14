@@ -1,0 +1,165 @@
+name: simulator
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege by default; jobs ask for more only when they need it.
+permissions:
+  contents: read
+
+concurrency:
+  group: simulator-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  go:
+    name: Go simulator (lint, tests)
+    runs-on: ubuntu-24.04 # pinned: upgrade deliberately, not when GitHub moves "latest"
+    defaults:
+      run:
+        working-directory: services/simulator
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27"
+          cache-dependency-path: services/simulator/go.sum
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.14.0
+          working-directory: services/simulator
+      - name: Test (race detector, 80% coverage gate)
+        run: |
+          go test -race -covermode=atomic -coverprofile=coverage.out ./...
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {sub("%", "", $3); print $3}')
+          echo "Total coverage: ${total}%"
+          if awk -v t="$total" 'BEGIN { exit !(t + 0 < 80) }'; then
+            echo "::error::Go coverage ${total}% is below 80%"
+            exit 1
+          fi
+      - name: Validate the built-in scenarios
+        run: go run ./cmd/simulator validate
+
+  routing-lint:
+    name: Routing (shellcheck, bounding box)
+    runs-on: ubuntu-24.04 # pinned: upgrade deliberately, not when GitHub moves "latest"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Shellcheck build-data.sh
+        run: shellcheck services/routing/build-data.sh
+      - name: Routing bounding box matches contracts/data/wards.json
+        run: |
+          want=$(jq -r '.bbox | "\(.min_lng),\(.min_lat),\(.max_lng),\(.max_lat)"' contracts/data/wards.json)
+          got=$(sed -n 's/^ARG BBOX=//p' services/routing/Dockerfile)
+          echo "contract: ${want}  Dockerfile: ${got}"
+          if [ "${want}" != "${got}" ]; then
+            echo "::error file=services/routing/Dockerfile::ARG BBOX (${got}) does not match contracts/data/wards.json (${want})"
+            exit 1
+          fi
+
+  simulator-image:
+    name: Image simulator (build, scan, smoke test)
+    needs: [go]
+    runs-on: ubuntu-24.04 # pinned: upgrade deliberately, not when GitHub moves "latest"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: services/simulator
+          load: true
+          push: false
+          tags: simulator:ci
+          cache-from: type=gha,scope=simulator
+          cache-to: type=gha,mode=max,scope=simulator
+      - name: Build for amd64 and arm64 (multi-arch check, cross-compiled, not loaded)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: services/simulator
+          platforms: linux/amd64,linux/arm64
+          push: false
+          cache-from: type=gha,scope=simulator
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.75.0 # the action's default (v0.70.0) has a path-traversal advisory fixed in 0.71.1
+          scan-type: image
+          image-ref: simulator:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Smoke test (scenarios load, service starts, probes answer, SIGTERM drains)
+        run: |
+          docker run --rm --read-only --cap-drop ALL simulator:ci validate
+          # No orders service here: the simulator serves liveness and metrics while it waits to
+          # seed, stays not-ready, and exits cleanly on SIGTERM.
+          docker run --detach --name smoke --read-only --tmpfs /tmp --cap-drop ALL \
+            --env ADMIN_TOKEN=ci --env ORDERS_URL=http://127.0.0.1:1 --env SEED_WAIT=5m \
+            --publish 127.0.0.1:9000:8080 simulator:ci
+          for _ in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:9000/healthz; then break; fi
+            sleep 1
+          done
+          curl --fail --silent --show-error http://127.0.0.1:9000/healthz
+          metrics=$(curl --fail --silent --show-error http://127.0.0.1:9000/metrics)
+          grep -q '^go_goroutines' <<<"${metrics}"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:9000/readyz)" = 503
+          docker stop --time 20 smoke # graceful shutdown must finish in time
+          test "$(docker inspect --format '{{.State.ExitCode}}' smoke)" = 0
+          docker logs smoke | tail -n 5
+
+  # The OSRM image downloads ~500 MB of OpenStreetMap data and builds a routing graph (10–20 min,
+  # estimated), so it runs only on main and on demand, never on every pull request.
+  routing-image:
+    name: Image routing (build, scan, smoke test)
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: [routing-lint]
+    runs-on: ubuntu-24.04 # pinned: upgrade deliberately, not when GitHub moves "latest"
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build image (cached per OSM snapshot)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: services/routing
+          load: true
+          push: false
+          tags: routing:ci
+          cache-from: type=gha,scope=routing
+          cache-to: type=gha,mode=max,scope=routing
+      - name: Scan image for vulnerabilities (report only; the base is upstream OSRM, fixed by bumping its tag)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.75.0 # the action's default (v0.70.0) has a path-traversal advisory fixed in 0.71.1
+          scan-type: image
+          image-ref: routing:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
+      - name: Smoke test (Shibuya → Shinjuku by bicycle)
+        run: |
+          docker run --detach --name routing --read-only --cap-drop ALL --publish 127.0.0.1:5000:5000 routing:ci
+          for _ in $(seq 1 120); do
+            if curl --fail --silent --output /dev/null 'http://127.0.0.1:5000/nearest/v1/bicycle/139.7016,35.6580'; then break; fi
+            sleep 1
+          done
+          route=$(curl --fail --silent --show-error 'http://127.0.0.1:5000/route/v1/bicycle/139.7016,35.6580;139.7005,35.6900?overview=false')
+          jq '{code, distance: .routes[0].distance, duration: .routes[0].duration}' <<<"${route}"
+          # 3.6 km apart in a straight line, so the ride should be 3.5–6 km.
+          jq -e '.code == "Ok" and .routes[0].distance > 3500 and .routes[0].distance < 6000' <<<"${route}" >/dev/null
+          echo "OSM snapshot: $(docker inspect --format '{{index .Config.Labels "io.tasuki.osm.snapshot"}}' routing:ci)"
+          docker image ls routing:ci --format 'Image size: {{.Size}}'
+          docker stop --time 10 routing

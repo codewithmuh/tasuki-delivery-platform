@@ -1,0 +1,103 @@
+# Metrics, dashboards and alerts: Prometheus Operator, Prometheus, Alertmanager, Grafana,
+# kube-state-metrics and node-exporter (kube-prometheus-stack). Logs: loki.yaml. Traces: tempo.yaml.
+# Telemetry pipeline: opentelemetry-collector.yaml. SLO rules: prometheus-rules.yaml.
+---
+# Prometheus Operator CRDs first and on their own: every chart that ships a ServiceMonitor (Argo CD,
+# Karpenter, Kyverno, ...) can then be synced in any order, and a stack upgrade never deletes them.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prometheus-operator-crds
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-9"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: prometheus-operator-crds
+    targetRevision: 32.0.1
+    helm:
+      releaseName: prometheus-operator-crds
+  destination:
+    name: in-cluster
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 5m}
+---
+# Grafana's admin password, generated once in the cluster by External Secrets (never in git, never
+# re-rolled by a re-render). Read it with: kubectl -n monitoring get secret grafana-admin -o jsonpath=...
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring-secrets
+  namespace: argocd
+  annotations:
+    # After External Secrets (-5), whose CRDs these objects are.
+    argocd.argoproj.io/sync-wave: "-4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+    targetRevision: main
+    path: deploy/platform/manifests/monitoring
+  destination:
+    name: in-cluster
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 5m}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    - repoURL: https://prometheus-community.github.io/helm-charts
+      chart: kube-prometheus-stack
+      targetRevision: 92.4.0
+      helm:
+        releaseName: kube-prometheus-stack
+        valueFiles:
+          - $values/deploy/platform/values/kube-prometheus-stack.yaml
+    - repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+      targetRevision: main
+      ref: values
+  destination:
+    name: in-cluster
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 5m}

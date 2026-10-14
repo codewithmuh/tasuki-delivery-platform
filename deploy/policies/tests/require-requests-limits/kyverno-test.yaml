@@ -1,0 +1,26 @@
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: require-requests-limits
+policies:
+  - ../../require-requests-limits.yaml
+resources:
+  - resources.yaml
+variables: ../values.yaml
+results:
+  - policy: require-requests-limits
+    kind: Pod
+    resources: [tasuki-dev/good]
+    result: pass
+  - policy: require-requests-limits
+    kind: Pod
+    resources: [tasuki-dev/bad-no-resources, tasuki-dev/bad-no-memory-limit, tasuki-dev/bad-init-without-requests]
+    result: fail
+  - policy: require-requests-limits
+    kind: Pod
+    resources: [monitoring/skipped-platform-namespace]
+    result: skip
+  - policy: require-requests-limits
+    kind: CronJob
+    resources: [tasuki-dev/bad-cronjob]
+    result: fail

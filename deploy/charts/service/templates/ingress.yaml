@@ -1,0 +1,26 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "service.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "service.labels" . | nindent 4 }}
+  annotations:
+    alb.ingress.kubernetes.io/group.name: {{ printf "tasuki-%s" .Release.Namespace | quote }}
+    {{- toYaml .Values.ingress.annotations | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    # The AWS Load Balancer Controller finds the ACM certificate for this host by itself.
+    - host: {{ required "ingress.host is required when ingress.enabled" .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: {{ .Values.ingress.path }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "service.name" . }}
+                port:
+                  name: http
+{{- end }}

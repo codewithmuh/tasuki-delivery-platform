@@ -1,0 +1,164 @@
+# Kafka in KRaft mode (no ZooKeeper), run by Strimzi. Dev: one node that is both controller and broker,
+# replication factor 1. Prod overlay: three nodes, replication factor 3, min.insync.replicas 2, one per AZ
+# (design.md §10: one AZ lost).
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: dual-role
+  labels:
+    strimzi.io/cluster: tasuki
+spec:
+  replicas: 1
+  roles: [controller, broker]
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        class: gp3
+        size: 10Gi
+        # The KRaft metadata log shares the data volume.
+        kraftMetadata: shared
+        deleteClaim: true
+  resources:
+    requests: {cpu: 250m, memory: 1Gi}
+    limits: {memory: 1Gi}
+  # Half the container for the JVM heap; Kafka relies on the page cache for the rest.
+  jvmOptions:
+    "-Xms": 512m
+    "-Xmx": 512m
+  template:
+    # One node per AZ when there are several (prod). EBS volumes are zonal, so the first placement sticks.
+    pod:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              strimzi.io/cluster: tasuki
+              strimzi.io/pool-name: dual-role
+    kafkaContainer:
+      # The operator's "restricted" provider sets the rest of the restricted profile; a container
+      # securityContext here replaces it, so the full set is repeated, plus a read-only root
+      # filesystem (Strimzi mounts its own /tmp).
+      securityContext:
+        runAsNonRoot: true
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+---
+apiVersion: kafka.strimzi.io/v1
+kind: Kafka
+metadata:
+  name: tasuki
+spec:
+  kafka:
+    version: 4.3.1
+    listeners:
+      # Plaintext inside the namespace; only the producers and consumers below may connect (Strimzi
+      # generates the NetworkPolicy). A TLS + mTLS listener is the next step.
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+        networkPolicyPeers:
+          - podSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - orders-outbox-relay
+                    - orders-dispatch-consumer
+                    - fleet-ingest
+                    - fleet-state
+                    - tracking
+                    - dispatch
+    config:
+      # Topics are declared as KafkaTopic objects (topics.yaml), never created by a typo in a client.
+      auto.create.topics.enable: false
+      default.replication.factor: 1
+      min.insync.replicas: 1
+      offsets.topic.replication.factor: 1
+      transaction.state.log.replication.factor: 1
+      transaction.state.log.min.isr: 1
+    metricsConfig:
+      type: strimziMetricsReporter
+  entityOperator:
+    # Manages KafkaTopic objects. No User Operator: there are no Kafka users (no auth yet).
+    topicOperator:
+      resources:
+        requests: {cpu: 50m, memory: 256Mi}
+        limits: {memory: 384Mi}
+    template:
+      topicOperatorContainer:
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+          seccompProfile:
+            type: RuntimeDefault
+  # Consumer-group lag per topic and partition: the first thing to look at when tracking or
+  # fleet-state falls behind.
+  kafkaExporter:
+    topicRegex: ".*"
+    groupRegex: ".*"
+    resources:
+      requests: {cpu: 20m, memory: 64Mi}
+      limits: {memory: 128Mi}
+    template:
+      container:
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+          seccompProfile:
+            type: RuntimeDefault
+---
+# The three topics from contracts/README.md. 12 partitions each: sized for consumer parallelism, not
+# throughput (design.md §6). Retention: locations are disposable after a day, events are kept a week.
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: courier.locations
+  labels:
+    strimzi.io/cluster: tasuki
+spec:
+  partitions: 12
+  replicas: 1
+  config:
+    retention.ms: 86400000
+    min.insync.replicas: 1
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: orders.events
+  labels:
+    strimzi.io/cluster: tasuki
+spec:
+  partitions: 12
+  replicas: 1
+  config:
+    retention.ms: 604800000
+    min.insync.replicas: 1
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: dispatch.events
+  labels:
+    strimzi.io/cluster: tasuki
+spec:
+  partitions: 12
+  replicas: 1
+  config:
+    retention.ms: 604800000
+    min.insync.replicas: 1

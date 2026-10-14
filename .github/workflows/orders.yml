@@ -1,0 +1,136 @@
+name: orders
+
+# The orders service (services/orders). No path filters on purpose: required status checks must
+# always report, or a pull request that doesn't touch orders could never merge.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least privilege by default; jobs ask for more only when they need it.
+permissions:
+  contents: read
+
+concurrency:
+  group: orders-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  python:
+    name: Python orders (lint, types, tests)
+    runs-on: ubuntu-24.04 # pinned: upgrade deliberately, not when GitHub moves "latest"
+    defaults:
+      run:
+        working-directory: services/orders
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: orders
+          POSTGRES_PASSWORD: orders-ci-only # a throwaway database that lives for this job only
+          POSTGRES_DB: orders
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready --username orders"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # PostgreSQL, so the tests marked `postgres` (row locks, SKIP LOCKED, unique-insert races) run.
+      DATABASE_URL: postgres://orders:orders-ci-only@localhost:5432/orders
+      REQUIRE_POSTGRES: "1" # fail, rather than skip those tests, if the database is misconfigured
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.0"
+          enable-cache: true
+          cache-dependency-glob: services/orders/uv.lock
+      - run: uv sync --locked
+      - run: uv run ruff format --check .
+      - run: uv run ruff check --output-format=github .
+      - run: uv run mypy
+      - name: Migrations match the models; Django deployment checks pass
+        env:
+          DJANGO_SETTINGS_MODULE: tests.settings # fake secrets; real ones are never in CI
+          PYTHONPATH: src:.
+        run: |
+          uv run python manage.py makemigrations --check --dry-run
+          uv run python manage.py check --deploy --fail-level WARNING
+      - run: uv run pytest # fails below 80% coverage; also fails if openapi.yaml is stale
+
+  image:
+    name: Image orders (build, scan, smoke test)
+    needs: [python]
+    runs-on: ubuntu-24.04 # pinned: upgrade deliberately, not when GitHub moves "latest"
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: orders
+          POSTGRES_PASSWORD: orders-ci-only # a throwaway database that lives for this job only
+          POSTGRES_DB: orders
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready --username orders"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: services/orders
+          load: true
+          push: false
+          tags: orders:ci
+          cache-from: type=gha,scope=orders
+          cache-to: type=gha,mode=max,scope=orders
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.75.0 # the action's default (v0.70.0) has a path-traversal advisory fixed in 0.71.1
+          scan-type: image
+          image-ref: orders:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Smoke test (migrates, starts read-only, becomes ready, serves, stops cleanly)
+        env:
+          IMAGE: orders:ci
+        run: |
+          # Throwaway secrets, generated for this run only.
+          env_file="${RUNNER_TEMP}/orders.env"
+          admin_token="$(openssl rand -hex 16)"
+          {
+            echo "DATABASE_URL=postgres://orders:orders-ci-only@127.0.0.1:5432/orders"
+            echo "DJANGO_SECRET_KEY=$(openssl rand -hex 32)"
+            echo "ORDERS_FIELD_KEY=$(openssl rand -base64 32 | tr '+/' '-_')"
+            echo "COURIER_TOKEN_SECRET=$(openssl rand -hex 32)"
+            echo "TRACKING_TOKEN_SECRET=$(openssl rand -hex 32)"
+            echo "ADMIN_TOKEN=${admin_token}"
+          } > "$env_file"
+          hardening=(--network host --read-only --tmpfs /tmp --cap-drop ALL
+                     --security-opt no-new-privileges --env-file "$env_file")
+          docker run --rm "${hardening[@]}" "$IMAGE" python manage.py migrate --noinput
+          docker run --detach --name smoke "${hardening[@]}" "$IMAGE"
+          for _ in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8000/readyz; then break; fi
+            sleep 1
+          done
+          curl --fail --silent --show-error http://127.0.0.1:8000/healthz
+          curl --fail --silent --show-error http://127.0.0.1:8000/readyz
+          auth_header="Authorization: Bearer ${admin_token}"
+          curl --fail --silent --show-error --output /dev/null --header "$auth_header" \
+            --header "Content-Type: application/json" \
+            --data '{"name": "CI courier", "vehicle": "bicycle"}' http://127.0.0.1:8000/v1/admin/couriers
+          curl --fail --silent --show-error http://127.0.0.1:8000/metrics | grep '^http_requests_total'
+          docker stop --time 20 smoke # graceful shutdown must finish in time
+          test "$(docker inspect --format '{{.State.ExitCode}}' smoke)" = 0
+          docker logs smoke | tail -n 5

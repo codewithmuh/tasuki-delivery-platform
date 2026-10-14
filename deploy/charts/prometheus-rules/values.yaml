@@ -1,0 +1,2 @@
+# Set by passing a rule file as a values file: its top-level "groups" list becomes the spec.
+groups: []

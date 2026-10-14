@@ -1,0 +1,182 @@
+# Unit tests for the cause and policy alerts in observability/alerts: `make slo-check` (promtool test rules).
+rule_files:
+  - ../orders.yaml
+  - ../kafka.yaml
+  - ../tracking.yaml
+  - ../eta-fallback.yaml
+  - ../error-budget.yaml
+  - ../rollout-gate.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: outbox lag pages after 5 minutes over 60 s; dev does not count
+    interval: 1m
+    input_series:
+      - series: 'orders_outbox_lag_seconds{namespace="tasuki-prod",pod="orders-relay-0"}'
+        values: "0x10 90x15"
+      - series: 'orders_outbox_lag_seconds{namespace="tasuki-dev",pod="orders-relay-0"}'
+        values: "600x25"
+    alert_rule_test:
+      - eval_time: 13m # pending, not firing yet
+        alertname: OrdersOutboxLagHigh
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: OrdersOutboxLagHigh
+        exp_alerts:
+          - exp_labels: {severity: page, category: backlog}
+            exp_annotations:
+              title: "orders outbox is not draining"
+              summary: "The oldest unpublished outbox event is 1m 30s old."
+              description: "Confirmed orders are not reaching Kafka, so dispatch cannot assign couriers to them."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/orders-outbox-lag.md"
+
+  - name: fleet-state consumer lag is summed over partitions
+    interval: 1m
+    input_series:
+      - series: 'kafka_consumergroup_lag{consumergroup="fleet-state",topic="courier.locations",partition="0"}'
+        values: "5000x10"
+      - series: 'kafka_consumergroup_lag{consumergroup="fleet-state",topic="courier.locations",partition="1"}'
+        values: "5000x10"
+      - series: 'kafka_consumergroup_lag{consumergroup="dispatch",topic="courier.locations",partition="0"}'
+        values: "50000x10"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: KafkaConsumerLagHigh
+        exp_alerts:
+          - exp_labels: {severity: page, category: backlog, consumergroup: fleet-state, topic: courier.locations}
+            exp_annotations:
+              title: "fleet-state is falling behind on courier.locations"
+              summary: "fleet-state is 10k messages behind (about 10 s of peak traffic is the limit)."
+              description: "Courier positions in Redis are getting stale, so dispatch matches on old positions."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/kafka-consumer-lag.md"
+
+  - name: tracking drops above 2 % open a ticket; brownout throttling is not a drop
+    interval: 1m
+    input_series:
+      - series: 'tracking_event_age_seconds_count{namespace="tasuki-prod",stream="track",pod="tracking-a"}'
+        values: "0+5700x40"
+      - series: 'tracking_sse_dropped_events_total{namespace="tasuki-prod",stream="track",pod="tracking-a"}'
+        values: "0+300x40"
+      - series: 'tracking_sse_throttled_events_total{namespace="tasuki-prod",stream="track",pod="tracking-a"}'
+        values: "0+90000x40"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: TrackingSSEDropsHigh
+        exp_alerts:
+          - exp_labels: {severity: ticket, category: saturation}
+            exp_annotations:
+              title: "tracking is dropping position events"
+              summary: "5% of position events were dropped for slow viewers (limit 2 %)."
+              description: "Viewers see the courier jump or freeze; the freshness SLO does not count dropped events."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/tracking-sse-drops.md"
+
+  - name: a tracking replica with console viewers that sends nothing is stalled
+    interval: 1m
+    input_series:
+      - series: 'fleet_ingest_points_total{namespace="tasuki-prod",result="accepted",pod="fleet-ingest-0"}'
+        values: "0+45000x20"
+      # tracking-a is healthy, tracking-b stopped sending at minute 0, tracking-c has only customer streams.
+      - series: 'tracking_sse_connections{namespace="tasuki-prod",stream="fleet",pod="tracking-a"}'
+        values: "2x20"
+      - series: 'tracking_event_age_seconds_count{namespace="tasuki-prod",stream="fleet",pod="tracking-a"}'
+        values: "0+40000x20"
+      - series: 'tracking_sse_connections{namespace="tasuki-prod",stream="fleet",pod="tracking-b"}'
+        values: "1x20"
+      - series: 'tracking_event_age_seconds_count{namespace="tasuki-prod",stream="fleet",pod="tracking-b"}'
+        values: "500x20"
+      - series: 'tracking_sse_connections{namespace="tasuki-prod",stream="track",pod="tracking-c"}'
+        values: "40x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: TrackingFeedStalled
+        exp_alerts:
+          - exp_labels: {severity: page, category: backlog, pod: tracking-b}
+            exp_annotations:
+              title: "tracking replica tracking-b has stopped sending positions"
+              summary: "tracking-b holds ops-console streams but sent no position events for 5 minutes while couriers are reporting."
+              description: "Every viewer on this replica sees a frozen map."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/tracking-feed-stalled.md"
+
+  - name: no courier is reporting, so a silent tracking replica is not stalled
+    interval: 1m
+    input_series:
+      - series: 'fleet_ingest_points_total{namespace="tasuki-prod",result="accepted",pod="fleet-ingest-0"}'
+        values: "100x20"
+      - series: 'tracking_sse_connections{namespace="tasuki-prod",stream="fleet",pod="tracking-b"}'
+        values: "1x20"
+      - series: 'tracking_event_age_seconds_count{namespace="tasuki-prod",stream="fleet",pod="tracking-b"}'
+        values: "500x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: TrackingFeedStalled
+        exp_alerts: []
+
+  - name: ETA fallback above 10 % opens a ticket per layer
+    interval: 1m
+    input_series:
+      - series: 'orders_quotes_created_total{namespace="tasuki-prod",service="orders",eta_source="dispatch"}'
+        values: "0+80x30"
+      - series: 'orders_quotes_created_total{namespace="tasuki-prod",service="orders",eta_source="fallback"}'
+        values: "0+20x30"
+      - series: 'dispatch_eta_requests_total{namespace="tasuki-prod",service="dispatch",source="osrm"}'
+        values: "0+99x30"
+      - series: 'dispatch_eta_requests_total{namespace="tasuki-prod",service="dispatch",source="fallback"}'
+        values: "0+1x30"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: ETAFallbackHigh
+        exp_alerts:
+          - exp_labels: {severity: ticket, category: degradation, component: orders}
+            exp_annotations:
+              title: "quotes are using the local ETA estimate"
+              summary: "20% of quotes did not get an ETA from dispatch (limit 10 %)."
+              description: "Quotes are less accurate; check dispatch GET /v1/eta. ETA accuracy (business SLO) will suffer."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/eta-fallback.md"
+
+  - name: budget low and budget exhausted are separate stages
+    interval: 1m
+    input_series:
+      - series: 'slo:period_error_budget_remaining:ratio{sloth_id="orders-availability",sloth_service="orders",sloth_slo="availability",sloth_window="4w"}'
+        values: "0.2x30"
+      - series: 'slo:period_error_budget_remaining:ratio{sloth_id="dispatch-assignment-speed",sloth_service="dispatch",sloth_slo="assignment-speed",sloth_window="4w"}'
+        values: "-0.1x30"
+      - series: 'slo:period_error_budget_remaining:ratio{sloth_id="tracking-freshness",sloth_service="tracking",sloth_slo="freshness",sloth_window="4w"}'
+        values: "0.9x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: SLOErrorBudgetLow
+        exp_alerts:
+          - exp_labels: {severity: ticket, category: error-budget, sloth_id: orders-availability, sloth_service: orders, sloth_slo: availability, sloth_window: 4w}
+            exp_annotations:
+              title: "orders availability: less than 25 % of the error budget left"
+              summary: "20% of the 28-day error budget remains."
+              description: "Prioritise reliability work for this service (error-budget policy, 75 % burned)."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/error-budget-low.md"
+      - eval_time: 20m
+        alertname: SLOErrorBudgetExhausted
+        exp_alerts:
+          - exp_labels: {severity: ticket, category: error-budget, sloth_id: dispatch-assignment-speed, sloth_service: dispatch, sloth_slo: assignment-speed, sloth_window: 4w}
+            exp_annotations:
+              title: "dispatch assignment-speed: error budget exhausted"
+              summary: "-10% of the 28-day error budget remains."
+              description: "Feature freeze for this service; the rollout gate now blocks its canaries."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/error-budget-exhausted.md"
+
+  - name: the gate deciding without a budget opens a ticket; budget decisions do not
+    interval: 1m
+    input_series:
+      - series: 'rollout_gate_decisions_total{allowed="false",cause="prometheus_error"}'
+        values: "0 0 1 1 1 1 1"
+      - series: 'rollout_gate_decisions_total{allowed="false",cause="budget"}'
+        values: "0+1x6"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: RolloutGateBudgetUnknown
+        exp_alerts:
+          - exp_labels: {severity: ticket, category: delivery, cause: prometheus_error}
+            exp_annotations:
+              title: "rollout gate cannot read an error budget (prometheus_error)"
+              summary: "In the last 15 minutes the gate decided without an error budget (cause: prometheus_error)."
+              description: "Canaries are blocked while the gate fails closed. Fix Prometheus or the SLO name in the AnalysisTemplate."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/rollout-gate-budget-unknown.md"

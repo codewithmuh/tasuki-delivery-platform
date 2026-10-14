@@ -1,0 +1,96 @@
+# Unit tests for the histogram-based SLIs (share of events under a bucket bound): `make slo-check`.
+# Prometheus 3 stores classic-histogram bounds as floats, so the inputs use le="60.0", le="2.0", le="10.0".
+rule_files:
+  - ../generated/dispatch.yaml
+  - ../generated/fleet-state.yaml
+  - ../generated/tracking.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: dispatch at 90 % assigned within 60 s burns 2× (ticket, no page)
+    interval: 1m
+    input_series:
+      - series: 'dispatch_assignment_duration_seconds_count{namespace="tasuki-prod",service="dispatch",outcome="assigned"}'
+        values: "0+60x60"
+      - series: 'dispatch_assignment_duration_seconds_bucket{namespace="tasuki-prod",service="dispatch",outcome="assigned",le="60.0"}'
+        values: "0+54x60"
+      - series: 'dispatch_assignment_duration_seconds_bucket{namespace="tasuki-prod",service="dispatch",outcome="assigned",le="+Inf"}'
+        values: "0+60x60"
+    promql_expr_test:
+      - expr: round(slo:sli_error:ratio_rate5m{sloth_id="dispatch-assignment-speed"}, 0.001)
+        eval_time: 30m
+        exp_samples:
+          - labels: '{sloth_id="dispatch-assignment-speed",sloth_service="dispatch",sloth_slo="assignment-speed",sloth_window="5m"}'
+            value: 0.1
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: DispatchAssignmentSpeedBudgetBurn
+        exp_alerts:
+          - exp_labels:
+              category: speed
+              severity: ticket
+              sloth_severity: ticket
+              sloth_id: dispatch-assignment-speed
+              sloth_service: dispatch
+              sloth_slo: assignment-speed
+            exp_annotations:
+              description: "Too many on-demand orders wait more than 60 s for an accepted courier."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-dispatch-assignment-speed.md"
+              summary: "dispatch assignment-speed SLO error budget burn rate is over expected."
+              title: "(ticket) dispatch assignment-speed SLO error budget burn rate is too fast."
+
+  - name: a no-courier order is bad even when it ends in under 60 s
+    interval: 1m
+    input_series:
+      # Per minute: 18 orders assigned within 60 s, 2 orders end fast with no courier → 10 % bad, not 0 %.
+      - series: 'dispatch_assignment_duration_seconds_count{namespace="tasuki-prod",service="dispatch",outcome="assigned"}'
+        values: "0+18x30"
+      - series: 'dispatch_assignment_duration_seconds_bucket{namespace="tasuki-prod",service="dispatch",outcome="assigned",le="60.0"}'
+        values: "0+18x30"
+      - series: 'dispatch_assignment_duration_seconds_count{namespace="tasuki-prod",service="dispatch",outcome="no_courier"}'
+        values: "0+2x30"
+      - series: 'dispatch_assignment_duration_seconds_bucket{namespace="tasuki-prod",service="dispatch",outcome="no_courier",le="60.0"}'
+        values: "0+2x30"
+    promql_expr_test:
+      - expr: round(slo:sli_error:ratio_rate5m{sloth_id="dispatch-assignment-speed"}, 0.001)
+        eval_time: 20m
+        exp_samples:
+          - labels: '{sloth_id="dispatch-assignment-speed",sloth_service="dispatch",sloth_slo="assignment-speed",sloth_window="5m"}'
+            value: 0.1
+
+  - name: fleet-state with every point late pages
+    interval: 1m
+    input_series:
+      - series: 'fleet_state_freshness_seconds_count{namespace="tasuki-prod",service="fleet-state"}'
+        values: "0+45000x30"
+      - series: 'fleet_state_freshness_seconds_bucket{namespace="tasuki-prod",service="fleet-state",le="2.0"}'
+        values: "0+0x30"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: FleetStateLocationFreshnessBudgetBurn
+        exp_alerts:
+          - exp_labels: {category: freshness, severity: page, sloth_severity: page, sloth_id: fleet-state-location-freshness, sloth_service: fleet-state, sloth_slo: location-freshness}
+            exp_annotations:
+              description: "Courier positions reach Redis later than 2 s too often; dispatch matches on stale positions."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-fleet-state-location-freshness.md"
+              summary: "fleet-state location-freshness SLO error budget burn rate is over expected."
+              title: "(page) fleet-state location-freshness SLO error budget burn rate is too fast."
+          - exp_labels: {category: freshness, severity: ticket, sloth_severity: ticket, sloth_id: fleet-state-location-freshness, sloth_service: fleet-state, sloth_slo: location-freshness}
+            exp_annotations:
+              description: "Courier positions reach Redis later than 2 s too often; dispatch matches on stale positions."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-fleet-state-location-freshness.md"
+              summary: "fleet-state location-freshness SLO error budget burn rate is over expected."
+              title: "(ticket) fleet-state location-freshness SLO error budget burn rate is too fast."
+
+  - name: tracking at 99.5 % fresh stays quiet
+    interval: 1m
+    input_series:
+      - series: 'tracking_event_age_seconds_count{namespace="tasuki-prod",service="tracking",stream="track"}'
+        values: "0+20000x60"
+      - series: 'tracking_event_age_seconds_bucket{namespace="tasuki-prod",service="tracking",stream="track",le="10.0"}'
+        values: "0+19900x60"
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: TrackingFreshnessBudgetBurn
+        exp_alerts: []

@@ -1,0 +1,10 @@
+# Only what the build stage needs goes into the context.
+node_modules
+dist
+coverage
+mock
+**/*.test.ts
+*.md
+.prettierrc.json
+.prettierignore
+eslint.config.js

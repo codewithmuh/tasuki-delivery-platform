@@ -1,0 +1,26 @@
+# Consumer lag on courier.locations (docs/design.md §6, §7.2). `make slo-check` validates and unit-tests this file.
+#
+# ASSUMED metric: kafka_consumergroup_lag{consumergroup,topic,partition} from Kafka Exporter (Strimzi ships it).
+# Only fleet-state consumes in a group (KAFKA_GROUP, default `fleet-state`). Tracking reads the topic without a
+# consumer group (every replica needs every point), so Kafka has no lag to report for it: TrackingFeedStalled in
+# tracking.yaml covers tracking instead. If dev and prod share one Kafka cluster, give them different KAFKA_GROUPs.
+groups:
+  - name: tasuki-kafka
+    rules:
+      # 7,500 messages ≈ 10 s of peak GPS traffic (750 points/s, docs/design.md §4).
+      # Pages, although it is a cause: a consumer that has stopped records no freshness events, so the location
+      # freshness SLO goes quiet instead of burning. Lag is the only signal left.
+      - alert: KafkaConsumerLagHigh
+        expr: |
+          sum by (consumergroup, topic) (
+            kafka_consumergroup_lag{topic="courier.locations", consumergroup="fleet-state"}
+          ) > 7500
+        for: 5m
+        labels:
+          severity: page
+          category: backlog
+        annotations:
+          title: "{{ $labels.consumergroup }} is falling behind on {{ $labels.topic }}"
+          summary: "{{ $labels.consumergroup }} is {{ $value | humanize }} messages behind (about 10 s of peak traffic is the limit)."
+          description: "Courier positions in Redis are getting stale, so dispatch matches on old positions."
+          runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/kafka-consumer-lag.md"

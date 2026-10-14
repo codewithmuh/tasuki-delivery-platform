@@ -1,0 +1,24 @@
+# Default StorageClass for every PVC (Prometheus, Loki, Tempo, Kafka, PostgreSQL). The EBS CSI driver
+# itself is an EKS managed add-on (infra/platform/eks.tf); only the class is defined here.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: storage
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-8"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+    targetRevision: main
+    path: deploy/platform/manifests/storage
+  destination:
+    name: in-cluster
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

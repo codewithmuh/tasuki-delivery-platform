@@ -1,0 +1,67 @@
+# Kyverno: admission policies for the Tasuki namespaces. Policy engine: Kyverno over OPA Gatekeeper,
+# proposed (ADR 0013 pending). The policies use the CEL-based policies.kyverno.io/v1 types, because
+# ClusterPolicy (kyverno.io/v1) is deprecated as of Kyverno 1.19.
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kyverno
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  sources:
+    - repoURL: https://kyverno.github.io/kyverno/
+      chart: kyverno
+      targetRevision: 3.9.1
+      helm:
+        releaseName: kyverno
+        valueFiles:
+          - $values/deploy/platform/values/kyverno.yaml
+    - repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+      targetRevision: main
+      ref: values
+  destination:
+    name: in-cluster
+    namespace: kyverno
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # Kyverno's CRDs are larger than the 256 KiB annotation client-side apply needs.
+      - ServerSideApply=true
+    retry:
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 5m}
+---
+# The policies themselves (deploy/policies/, unit-tested with `kyverno test`).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kyverno-policies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+    targetRevision: main
+    path: deploy/policies
+  destination:
+    name: in-cluster
+    namespace: kyverno
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 10
+      backoff: {duration: 10s, factor: 2, maxDuration: 5m}

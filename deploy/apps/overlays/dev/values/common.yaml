@@ -1,0 +1,5 @@
+# Helm values for every service in tasuki-dev (before the service's own values, so a service can
+# override them). Promotion = this image tag. All services share the repository's release version.
+image:
+  tag: "0.1.0"
+replicas: 1

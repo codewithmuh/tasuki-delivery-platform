@@ -1,0 +1,4 @@
+# Each replica holds up to TRACKING_MAX_VIEWERS (5,000) SSE connections; 10,000 viewers need two (design.md §4).
+resources:
+  requests: {cpu: 100m, memory: 256Mi}
+  limits: {memory: 512Mi}

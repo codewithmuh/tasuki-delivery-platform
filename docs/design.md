@@ -163,7 +163,7 @@ flowchart LR
 | `ledger` | Accounts, double-entry postings, merchant statements, courier payouts, daily reconciliation | Python, PostgreSQL | P3 |
 | `workflows` | The order saga: authorise → dispatch → deliver → capture → post to ledger, with compensation | Temporal, Python workers | P3 |
 | `fleet-ingest` | Authenticated GPS batch endpoint for couriers; validation, dedupe, publish to Kafka | Go | P1 |
-| `fleet-state` | Latest position, status and H3 cell per courier in Redis; writes history to S3 | Go, Redis, H3 | P1 |
+| `fleet-state` | Latest position and status per courier in Redis, GEO index for nearest-courier queries; writes history to S3 | Go, Redis | P1 |
 | `dispatch` | Per-ward matching of orders to couriers, offers with timeouts, ETA quotes | Go, OSRM | P1 (greedy) → P3 (batched optimal) |
 | `tracking` | Live position stream for customers, merchants and the console (server-sent events) | Go | P1 |
 | `webhooks` | Signed, retried merchant webhooks with dead-letter queue and replay | Go | P3 |
@@ -219,7 +219,8 @@ sequenceDiagram
 2. `fleet-ingest` checks the courier token, drops malformed points and points stamped more than 30 s in the future,
    and publishes them to `courier.locations`.
 3. `fleet-state` keeps the newest point per courier in Redis (older points are ignored, so out-of-order delivery is
-   harmless), indexes couriers by H3 cell, and appends history to S3 as hourly Parquet files.
+   harmless), indexes couriers with Redis GEO sets for "nearest available courier" queries (H3 cells arrive with
+   batched dispatch in P3), and appends history to S3 as hourly Parquet files.
 4. `tracking` reads the location stream directly from Kafka and pushes updates to the viewers it holds. At 750
    messages/s, each replica reading the whole stream is cheaper and simpler than per-courier pub/sub, and it means a
    Redis outage cannot stop tracking (**ADR**).
@@ -300,7 +301,7 @@ stateDiagram-v2
 | `orders` DB | `merchant`, `api_key`, `store` (location, H3 cell), `order`, `order_event` (append-only history), `delivery_window`, `window_hold`, `idempotency_record`, `outbox` |
 | `ledger` DB | `account`, `journal_entry`, `posting` (signed yen amount), `statement`, `payout`, `reconciliation_exception` |
 | `dispatch` | `offer` (order, courier, ward, epoch, expires_at) |
-| Redis | `courier:{id}` → position, status, cell, timestamp · `cell:{h3}` → courier IDs |
+| Redis | `courier:{id}` → position, status, timestamp · `geo:couriers:available` and `geo:couriers:all` → GEO sets (see [contracts](../contracts/README.md)) |
 | S3 | `locations/dt=YYYY-MM-DD/hour=HH/*.parquet` · database backups · OSRM data |
 
 IDs are ULIDs: sortable by time, safe to generate in any service, and not guessable.
@@ -351,7 +352,8 @@ Every row above becomes a game-day experiment, and two of them become written po
   delivery; the ledger keeps only order IDs.
 - **Tenancy:** every merchant is a tenant with its own OAuth2 client credentials. Every query is scoped to the
   tenant, and rate limits are per tenant, so one noisy merchant cannot slow the rest.
-- **Tracking links** are signed, single-order, and expire 24 h after delivery.
+- **Tracking links** are signed and single-order. They expire 24 h after the promised delivery time (a signed link
+  can't know the actual delivery time when it is issued), and the stream itself ends at delivery.
 - **Webhooks** are signed with HMAC-SHA256 over a timestamp and the body, with a 5-minute replay window. Two secrets
   stay active during rotation.
 - **Platform:**
@@ -371,7 +373,7 @@ Every row above becomes a game-day experiment, and two of them become written po
   dashboards and alert rules live in git.
 - **Environments:** local (Docker Compose and kind), and one EKS cluster with `dev` and `prod` namespaces to keep
   cost down. A real company would use separate AWS accounts and clusters per environment (**ADR**).
-- **Cost:** under $8 a day while running; `make down` returns it to $0 apart from the Terraform state bucket.
+- **Cost:** under $8 a day while running; `make aws-down` returns it to $0 apart from the Terraform state bucket.
 
 ## 13. What this repository builds
 
@@ -415,6 +417,8 @@ Each becomes an ADR in [adr/](adr/), written by the owner as the work reaches it
 | 0015 | SLO tooling | Sloth · Pyrra · hand-written rules |
 | 0016 | Environments | One cluster with namespaces · a cluster per environment |
 | 0017 | Money representation | Integer yen + double-entry ledger · balances on rows |
+| 0018 | Where does Terraform stop and GitOps start? | Terraform for AWS only, Argo CD for everything in the cluster · Terraform installs cluster add-ons too |
+| 0019 | NAT gateways in dev | One shared NAT gateway · one per AZ |
 
 ## 15. Open questions
 

@@ -1,0 +1,113 @@
+name: console
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least privilege by default; jobs ask for more only when they need it.
+permissions:
+  contents: read
+
+concurrency:
+  group: console-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  console:
+    name: Console (lint, types, tests, build)
+    runs-on: ubuntu-24.04 # pinned: upgrade deliberately, not when GitHub moves "latest"
+    defaults:
+      run:
+        working-directory: services/console
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24" # LTS line; the Dockerfile pins the exact version
+          cache: npm
+          cache-dependency-path: services/console/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:coverage # fails below 80% coverage on src/lib (see vite.config.ts)
+      - name: Build (bundle sizes in the job summary)
+        run: |
+          npm run build
+          {
+            echo "### Console bundle"
+            echo '| File | Bytes | Gzip bytes |'
+            echo '|---|---:|---:|'
+            for f in dist/assets/*; do
+              echo "| ${f#dist/} | $(wc -c <"$f") | $(gzip -9c "$f" | wc -c) |"
+            done
+          } >>"$GITHUB_STEP_SUMMARY"
+
+  console-image:
+    name: Image console (build, scan, smoke test)
+    needs: [console]
+    runs-on: ubuntu-24.04 # pinned: upgrade deliberately, not when GitHub moves "latest"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: services/console
+          load: true
+          push: false
+          tags: console:ci
+          cache-from: type=gha,scope=console
+          cache-to: type=gha,mode=max,scope=console
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.75.0 # the action's default (v0.70.0) has a path-traversal advisory fixed in 0.71.1
+          scan-type: image
+          image-ref: console:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Smoke test (read-only container serves the app, config, headers and probes)
+        env:
+          TRACKING: https://tracking.example.test
+        run: |
+          docker run --detach --name smoke --read-only --tmpfs /tmp --cap-drop ALL \
+            --env CONSOLE_TRACKING_BASE_URL="${TRACKING}" \
+            --publish 127.0.0.1:9000:8080 console:ci
+          for _ in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:9000/healthz; then break; fi
+            sleep 1
+          done
+          base=http://127.0.0.1:9000
+          curl --fail --silent --show-error "${base}/healthz"
+          curl --fail --silent --show-error "${base}/readyz"
+          # Runtime config comes from the environment, and the CSP allows exactly that origin.
+          curl --fail --silent --show-error "${base}/config.json" | jq -e --arg t "${TRACKING}" '.trackingBaseUrl == $t'
+          headers=$(curl --fail --silent --show-error --head "${base}/")
+          grep -i "^content-security-policy: .*connect-src 'self' ${TRACKING} https://tiles.openfreemap.org" <<<"${headers}"
+          grep -i '^x-content-type-options: nosniff' <<<"${headers}"
+          grep -i '^referrer-policy: no-referrer' <<<"${headers}"
+          grep -i '^cache-control: no-cache' <<<"${headers}"
+          # Client-side routes load the app; hashed assets are cached for a year; the worker is JavaScript.
+          curl --fail --silent --show-error "${base}/track/some.token" | grep -q '<div id="root">'
+          asset=$(curl --fail --silent "${base}/" | grep -o '/assets/index-[^"]*\.js' | head -n 1)
+          curl --fail --silent --show-error --head "${base}${asset}" | grep -i '^cache-control: .*immutable'
+          worker=$(docker exec smoke sh -c 'cd /srv/console && ls assets/maplibre-gl-worker-*.mjs')
+          curl --fail --silent --show-error --head "${base}/${worker}" | grep -i '^content-type: text/javascript'
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' "${base}/assets/missing.js")" = 404
+          docker exec smoke wget -q -O - http://127.0.0.1:8081/stub_status | grep -q 'Active connections'
+          docker stop --time 20 smoke # SIGQUIT: nginx finishes in-flight requests, then exits
+          test "$(docker inspect --format '{{.State.ExitCode}}' smoke)" = 0
+          docker logs smoke | tail -n 5
+          # A malformed tracking origin must stop the container instead of producing a broken CSP.
+          if timeout 30 docker run --rm --read-only --tmpfs /tmp --cap-drop ALL \
+            --env CONSOLE_TRACKING_BASE_URL="https://x.example/; script-src *" console:ci; then
+            echo "::error::the image started with an invalid CONSOLE_TRACKING_BASE_URL"
+            exit 1
+          fi

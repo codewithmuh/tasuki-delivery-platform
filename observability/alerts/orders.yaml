@@ -1,0 +1,22 @@
+# Cause alerts for orders (docs/design.md §7.1, §10). Plain Prometheus rule groups: promtool checks them, and the
+# GitOps layer wraps them in PrometheusRule objects. `make slo-check` validates and unit-tests this file.
+#
+# Metric: orders_outbox_lag_seconds (services/orders/src/core/metrics.py), a gauge exported by the outbox relay
+# process: age of the oldest unpublished outbox event, 0 when the outbox is empty. No `service` filter, because
+# the relay is scraped through its own worker metrics port.
+groups:
+  - name: tasuki-orders
+    rules:
+      # Pages, although it is a cause: the dispatch SLI observes an order only when dispatching ends, so a stalled
+      # relay is invisible to the dispatch SLO until the backlog drains. This alert covers that blind spot.
+      - alert: OrdersOutboxLagHigh
+        expr: max(orders_outbox_lag_seconds{namespace="tasuki-prod"}) > 60
+        for: 5m
+        labels:
+          severity: page
+          category: backlog
+        annotations:
+          title: "orders outbox is not draining"
+          summary: "The oldest unpublished outbox event is {{ $value | humanizeDuration }} old."
+          description: "Confirmed orders are not reaching Kafka, so dispatch cannot assign couriers to them."
+          runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/orders-outbox-lag.md"

@@ -1,0 +1,23 @@
+# Scrape configs for the data stores (the services bring their own ServiceMonitors via the chart).
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: kafka
+spec:
+  selector:
+    matchLabels:
+      strimzi.io/cluster: tasuki
+  podMetricsEndpoints:
+    - port: tcp-prometheus
+      path: /metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: orders-db
+spec:
+  selector:
+    matchLabels:
+      cnpg.io/cluster: orders-db
+  podMetricsEndpoints:
+    - port: metrics

@@ -1,0 +1,148 @@
+# Unit tests for the Sloth-generated orders availability rules: `make slo-check` (promtool test rules).
+# Budget: 99.9 % → 0.1 % errors. Sloth's 28-day windows page at 13.44× (1.344 % errors over 1 h and 5 m)
+# or 5.6× (0.56 % over 6 h and 30 m), and open a ticket at 2.8× (1 d and 2 h) or 0.93× (3 d and 6 h).
+rule_files:
+  - ../generated/orders.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: fast burn (2 % errors) pages and opens a ticket
+    interval: 1m
+    input_series:
+      # 6,000 requests a minute (100/s), 2 % of them 5xx: a 20× burn rate.
+      - series: 'http_requests_total{namespace="tasuki-prod",service="orders",method="POST",route="/v1/orders",status="201"}'
+        values: "0+5880x90"
+      - series: 'http_requests_total{namespace="tasuki-prod",service="orders",method="POST",route="/v1/orders",status="503"}'
+        values: "0+120x90"
+    promql_expr_test:
+      - expr: slo:sli_error:ratio_rate5m{sloth_id="orders-availability"}
+        eval_time: 30m
+        exp_samples:
+          - labels: 'slo:sli_error:ratio_rate5m{sloth_id="orders-availability",sloth_service="orders",sloth_slo="availability",sloth_window="5m"}'
+            value: 0.02
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: OrdersAvailabilityBudgetBurn
+        exp_alerts:
+          - exp_labels:
+              category: availability
+              severity: page
+              sloth_severity: page
+              sloth_id: orders-availability
+              sloth_service: orders
+              sloth_slo: availability
+            exp_annotations:
+              description: "Merchants are getting 5xx from quotes or order creation faster than the 99.9 % SLO allows."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-orders-availability.md"
+              summary: "orders availability SLO error budget burn rate is over expected."
+              title: "(page) orders availability SLO error budget burn rate is too fast."
+          - exp_labels:
+              category: availability
+              severity: ticket
+              sloth_severity: ticket
+              sloth_id: orders-availability
+              sloth_service: orders
+              sloth_slo: availability
+            exp_annotations:
+              description: "Merchants are getting 5xx from quotes or order creation faster than the 99.9 % SLO allows."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-orders-availability.md"
+              summary: "orders availability SLO error budget burn rate is over expected."
+              title: "(ticket) orders availability SLO error budget burn rate is too fast."
+
+  - name: healthy service (0.05 % errors) does not alert and keeps half its budget
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{namespace="tasuki-prod",service="orders",method="POST",route="/v1/quotes",status="200"}'
+        values: "0+5997x240"
+      - series: 'http_requests_total{namespace="tasuki-prod",service="orders",method="POST",route="/v1/quotes",status="500"}'
+        values: "0+3x240"
+    alert_rule_test:
+      - eval_time: 4h
+        alertname: OrdersAvailabilityBudgetBurn
+        exp_alerts: []
+    promql_expr_test:
+      # Burn rate 0.5 over the period so far → half of the budget remains. This is what the rollout gate reads.
+      # round(): the budget arithmetic is float (1 - 0.999 is not exactly 0.001), so compare to 0.1 %.
+      - expr: round(slo:period_error_budget_remaining:ratio{sloth_id="orders-availability"}, 0.001)
+        eval_time: 4h
+        exp_samples:
+          - labels: '{sloth_id="orders-availability",sloth_service="orders",sloth_slo="availability",sloth_window="4w"}'
+            value: 0.5
+
+  - name: the page clears once errors stop; the ticket stays for follow-up
+    interval: 1m
+    input_series:
+      # 5 % errors for 30 minutes, then none.
+      - series: 'http_requests_total{namespace="tasuki-prod",service="orders",method="POST",route="/v1/orders",status="201"}'
+        values: "0+5700x90"
+      - series: 'http_requests_total{namespace="tasuki-prod",service="orders",method="POST",route="/v1/orders",status="500"}'
+        values: "0+300x30 9000+0x60"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: OrdersAvailabilityBudgetBurn
+        exp_alerts:
+          - exp_labels: {category: availability, severity: page, sloth_severity: page, sloth_id: orders-availability, sloth_service: orders, sloth_slo: availability}
+            exp_annotations:
+              description: "Merchants are getting 5xx from quotes or order creation faster than the 99.9 % SLO allows."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-orders-availability.md"
+              summary: "orders availability SLO error budget burn rate is over expected."
+              title: "(page) orders availability SLO error budget burn rate is too fast."
+          - exp_labels: {category: availability, severity: ticket, sloth_severity: ticket, sloth_id: orders-availability, sloth_service: orders, sloth_slo: availability}
+            exp_annotations:
+              description: "Merchants are getting 5xx from quotes or order creation faster than the 99.9 % SLO allows."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-orders-availability.md"
+              summary: "orders availability SLO error budget burn rate is over expected."
+              title: "(ticket) orders availability SLO error budget burn rate is too fast."
+      # 35 minutes after recovery the 1 h and 6 h windows are still hot, but both short windows (5 m, 30 m)
+      # are clean, so the page resolves. That is what the short windows are for.
+      - eval_time: 65m
+        alertname: OrdersAvailabilityBudgetBurn
+        exp_alerts:
+          - exp_labels: {category: availability, severity: ticket, sloth_severity: ticket, sloth_id: orders-availability, sloth_service: orders, sloth_slo: availability}
+            exp_annotations:
+              description: "Merchants are getting 5xx from quotes or order creation faster than the 99.9 % SLO allows."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-orders-availability.md"
+              summary: "orders availability SLO error budget burn rate is over expected."
+              title: "(ticket) orders availability SLO error budget burn rate is too fast."
+
+  - name: other routes and dev traffic do not count
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{namespace="tasuki-prod",service="orders",method="POST",route="/v1/orders",status="201"}'
+        values: "0+600x60"
+      - series: 'http_requests_total{namespace="tasuki-prod",service="orders",method="GET",route="/v1/orders/<str:order_id>",status="500"}'
+        values: "0+600x60"
+      - series: 'http_requests_total{namespace="tasuki-dev",service="orders",method="POST",route="/v1/orders",status="500"}'
+        values: "0+600x60"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: OrdersAvailabilityBudgetBurn
+        exp_alerts: []
+
+  - name: no 5xx series yet means 0 % errors, not "no data"
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{namespace="tasuki-prod",service="orders",method="POST",route="/v1/orders",status="201"}'
+        values: "0+600x30"
+    promql_expr_test:
+      - expr: slo:sli_error:ratio_rate5m{sloth_id="orders-availability"}
+        eval_time: 30m
+        exp_samples:
+          - labels: 'slo:sli_error:ratio_rate5m{sloth_id="orders-availability",sloth_service="orders",sloth_slo="availability",sloth_window="5m"}'
+            value: 0
+
+  - name: no traffic records nothing (no NaN to poison the 28-day budget)
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{namespace="tasuki-prod",service="orders",method="POST",route="/v1/orders",status="201"}'
+        values: "100+0x30"
+      - series: 'http_requests_total{namespace="tasuki-prod",service="orders",method="POST",route="/v1/orders",status="500"}'
+        values: "1+0x30"
+    promql_expr_test:
+      - expr: slo:sli_error:ratio_rate5m{sloth_id="orders-availability"}
+        eval_time: 30m
+        exp_samples: []
+      - expr: slo:period_error_budget_remaining:ratio{sloth_id="orders-availability"}
+        eval_time: 30m
+        exp_samples: []

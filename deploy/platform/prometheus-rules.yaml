@@ -1,0 +1,49 @@
+# SLO and alert rules from observability/ (Sloth output and hand-written alerts, both plain Prometheus
+# rule files checked by promtool in CI). One Application per file: the git files generator finds the
+# files, and deploy/charts/prometheus-rules wraps each one in a PrometheusRule. Prometheus picks up every
+# PrometheusRule in the cluster (values/kube-prometheus-stack.yaml), so no selector labels are needed.
+# A new rule file needs no change here. SLO tooling: Sloth, proposed (ADR 0015 pending).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: prometheus-rules
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+        revision: main
+        files:
+          - path: observability/slo/generated/*.yaml
+          - path: observability/alerts/*.yaml
+  template:
+    metadata:
+      # rules-generated-orders, rules-alerts-<file>, ...
+      name: 'rules-{{ .path.basename }}-{{ trimSuffix ".yaml" .path.filename }}'
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: platform
+      source:
+        repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+        targetRevision: main
+        path: deploy/charts/prometheus-rules
+        helm:
+          releaseName: 'rules-{{ .path.basename }}-{{ trimSuffix ".yaml" .path.filename }}'
+          # Relative to the chart directory; Argo CD allows any path inside the same repository.
+          valueFiles:
+            - '../../../{{ .path.path }}/{{ .path.filename }}'
+      destination:
+        name: in-cluster
+        namespace: monitoring
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        retry:
+          limit: 10
+          backoff: {duration: 10s, factor: 2, maxDuration: 5m}

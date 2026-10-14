@@ -1,0 +1,71 @@
+# tasuki-prod: the namespace-level resources of the prod environment (Kustomize). Same as dev, plus the
+# high-availability settings from design.md §10. Service settings for prod are Helm values in ./values/.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: tasuki-prod
+resources:
+  - ../../base
+patches:
+  - target:
+      kind: ExternalSecret
+      name: tasuki-app
+    patch: |-
+      - op: replace
+        path: /spec/secretStoreRef/name
+        value: tasuki-prod
+  - target:
+      kind: ResourceQuota
+      name: tasuki
+    patch: |-
+      - op: replace
+        path: /spec/hard
+        value:
+          requests.cpu: "8"
+          requests.memory: 16Gi
+          limits.memory: 24Gi
+          persistentvolumeclaims: "10"
+          requests.storage: 100Gi
+  # Kafka: three nodes, one per AZ (the node pool's spread constraint). With replication factor 3 on three
+  # brokers every partition has a copy in every AZ, so rack awareness is not needed; a write needs two
+  # in-sync copies, so one AZ can go without losing acknowledged data.
+  - target:
+      kind: KafkaNodePool
+      name: dual-role
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+      - op: replace
+        path: /spec/storage/volumes/0/deleteClaim
+        value: false
+  - target:
+      kind: Kafka
+      name: tasuki
+    patch: |-
+      - op: replace
+        path: /spec/kafka/config
+        value:
+          auto.create.topics.enable: false
+          default.replication.factor: 3
+          min.insync.replicas: 2
+          offsets.topic.replication.factor: 3
+          transaction.state.log.replication.factor: 3
+          transaction.state.log.min.isr: 2
+  - target:
+      kind: KafkaTopic
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+      - op: replace
+        path: /spec/config/min.insync.replicas
+        value: 2
+  # PostgreSQL: primary + one standby in another AZ (asynchronous replication: a failover can lose the
+  # last few transactions; synchronous replication needs a third instance to avoid blocking writes).
+  - target:
+      kind: Cluster
+      name: orders-db
+    patch: |-
+      - op: replace
+        path: /spec/instances
+        value: 2

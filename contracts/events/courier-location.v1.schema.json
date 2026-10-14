@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/codewithmuh/tasuki-delivery-platform/contracts/events/courier-location.v1.schema.json",
+  "title": "courier.location.v1",
+  "description": "One GPS point from a courier. Topic courier.locations, key courier_id. Latest device_time wins; older points are ignored.",
+  "type": "object",
+  "required": ["schema", "event_id", "courier_id", "lat", "lng", "device_time", "received_at", "status"],
+  "additionalProperties": true,
+  "properties": {
+    "schema": { "const": "courier.location.v1" },
+    "event_id": { "type": "string", "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "courier_id": { "type": "string", "pattern": "^cou_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+    "lng": { "type": "number", "minimum": -180, "maximum": 180 },
+    "accuracy_m": { "type": "number", "minimum": 0 },
+    "speed_mps": { "type": "number", "minimum": 0 },
+    "heading_deg": { "type": "number", "minimum": 0, "exclusiveMaximum": 360 },
+    "device_time": { "type": "string", "format": "date-time", "description": "When the device took the reading." },
+    "received_at": { "type": "string", "format": "date-time", "description": "When fleet-ingest accepted it. Freshness SLIs are measured from this." },
+    "status": { "enum": ["idle", "to_store", "at_store", "to_dropoff", "offline"] },
+    "order_id": { "type": ["string", "null"], "pattern": "^ord_[0-9A-HJKMNP-TV-Z]{26}$" }
+  }
+}

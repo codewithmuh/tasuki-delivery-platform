@@ -1,0 +1,15 @@
+# tasuki-dev: the namespace-level resources of the dev environment (Kustomize). Service settings for dev
+# are Helm values in ./values/ (read by the tasuki-services ApplicationSet, not by Kustomize).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: tasuki-dev
+resources:
+  - ../../base
+patches:
+  - target:
+      kind: ExternalSecret
+      name: tasuki-app
+    patch: |-
+      - op: replace
+        path: /spec/secretStoreRef/name
+        value: tasuki-dev

@@ -1,0 +1,39 @@
+# routing: OSRM (MLD) with the Kantō road graph baked into the image (services/routing). Read-only data,
+# loaded at start-up in a few seconds. OSRM has no /healthz or /metrics: the probes ask for the nearest
+# road to Shibuya station, which only answers 200 once the graph is loaded.
+image:
+  repository: ghcr.io/codewithmuh/tasuki-delivery-platform/routing
+port: 5000
+
+probes:
+  liveness:
+    httpGet:
+      path: /nearest/v1/bicycle/139.7016,35.6580
+  readiness:
+    httpGet:
+      path: /nearest/v1/bicycle/139.7016,35.6580
+  startup:
+    httpGet:
+      path: /nearest/v1/bicycle/139.7016,35.6580
+
+metrics:
+  serviceMonitor:
+    enabled: false
+
+# OSRM does not speak OpenTelemetry.
+otlp:
+  endpoint: ""
+
+# Estimate until the first CI build measures it.
+resources:
+  requests: {cpu: 250m, memory: 1Gi}
+  limits: {memory: 2Gi}
+
+networkPolicy:
+  allowFrom:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: dispatch
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: simulator

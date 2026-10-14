@@ -1,0 +1,179 @@
+name: terraform
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least privilege by default; jobs ask for more only when they need it.
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash # an explicit shell adds -o pipefail, so `plan | tee` fails when plan fails
+
+env:
+  TERRAFORM_VERSION: "1.16.5"
+  TFLINT_VERSION: "v0.64.0"
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+jobs:
+  static:
+    name: Terraform (fmt, validate, tflint, checkov)
+    runs-on: ubuntu-24.04 # pinned: upgrade deliberately, not when GitHub moves "latest"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Runs before `terraform init`, so the registry modules downloaded into .terraform/ are not
+      # scanned as if they were our code. Exceptions and their reasons: infra/.checkov.yaml.
+      - name: Checkov
+        uses: bridgecrewio/checkov-action@6f26dc90000b74feb589a906cdfae540f5119895 # v12.3134.0
+        with:
+          directory: infra
+          config_file: infra/.checkov.yaml
+          output_format: cli
+          quiet: true
+          compact: true
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+      - name: Format
+        run: terraform fmt -check -recursive -diff infra
+      - name: Validate (no backend, no AWS credentials)
+        run: |
+          for stack in bootstrap platform; do
+            terraform -chdir="infra/${stack}" init -backend=false
+            terraform -chdir="infra/${stack}" validate
+          done
+      - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+        with:
+          tflint_version: ${{ env.TFLINT_VERSION }}
+      - name: TFLint
+        working-directory: infra
+        env:
+          GITHUB_TOKEN: ${{ github.token }} # tflint --init downloads the AWS ruleset from GitHub releases
+        run: |
+          tflint --init
+          tflint --recursive --config "${PWD}/.tflint.hcl" --format compact
+
+  plan:
+    name: Terraform plan (platform)
+    # Runs once the AWS side exists (make aws-bootstrap, then the repository variables in
+    # infra/README.md). Pull requests from forks get no OIDC token, so only this repo's branches.
+    if: >-
+      github.event_name == 'pull_request' &&
+      vars.AWS_PLAN_ROLE_ARN != '' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    needs: static
+    runs-on: ubuntu-24.04 # pinned: upgrade deliberately, not when GitHub moves "latest"
+    permissions:
+      contents: read
+      id-token: write # OIDC token for the read-only plan role; no AWS keys are stored in GitHub
+      pull-requests: write # post the plan as a comment
+    env:
+      TF_VAR_account_id: ${{ vars.AWS_ACCOUNT_ID }}
+      TF_VAR_api_allowed_cidrs: ${{ vars.API_ALLOWED_CIDRS }}
+      TF_VAR_admin_principal_arns: ${{ vars.CLUSTER_ADMIN_ARNS }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+    steps:
+      # The repository is public, so its logs are too. Variables are not masked like secrets are.
+      - name: Hide the account ID and allowed IPs in the log
+        run: |
+          echo "::add-mask::${TF_VAR_account_id}"
+          for cidr in $(jq -r '.[]' <<<"${TF_VAR_api_allowed_cidrs}"); do
+            echo "::add-mask::${cidr}"
+          done
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ap-northeast-1
+          mask-aws-account-id: true
+      - name: Init
+        run: terraform -chdir=infra/platform init -backend-config="bucket=${TF_STATE_BUCKET}"
+      - name: Plan
+        id: plan
+        run: terraform -chdir=infra/platform plan -no-color -lock-timeout=5m 2>&1 | tee plan.txt
+      # One comment per pull request, edited on every push instead of adding a new one each time.
+      # Runs when the plan fails too, so the error shows up on the pull request.
+      - name: Comment the plan on the pull request
+        if: ${{ !cancelled() && steps.plan.outcome != 'skipped' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          OUTCOME: ${{ steps.plan.outcome }}
+        run: |
+          marker="<!-- terraform-plan:platform -->"
+
+          # Comments are public as well: replace the account ID and the allowed CIDRs.
+          redact=(-e "s|${TF_VAR_account_id}|<account-id>|g")
+          for cidr in $(jq -r '.[]' <<<"${TF_VAR_api_allowed_cidrs}"); do
+            redact+=(-e "s|${cidr}|<allowed-cidr>|g")
+          done
+
+          {
+            echo "${marker}"
+            echo "### Terraform plan (platform): ${OUTCOME}"
+            echo
+            echo "For ${HEAD_SHA}. Applied only by the infra-apply workflow, after a reviewer approves."
+            echo
+            echo "<details><summary>Show plan</summary>"
+            echo
+            echo '```'
+            sed "${redact[@]}" plan.txt | tail -c 60000 # a comment holds at most 65,536 characters
+            echo '```'
+            echo "</details>"
+          } > comment.md
+
+          comment_id=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"${marker}\"))) | .id" |
+            tail -n 1)
+          if [[ -n "${comment_id}" ]]; then
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}" -F body=@comment.md
+          else
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" -F body=@comment.md
+          fi
+
+  infracost:
+    name: Infracost diff
+    # Optional: set the repository variable INFRACOST_ENABLED=true and the secret INFRACOST_API_KEY.
+    # Fork pull requests get no secrets, so only this repo's branches.
+    if: >-
+      github.event_name == 'pull_request' &&
+      vars.INFRACOST_ENABLED == 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04 # pinned: upgrade deliberately, not when GitHub moves "latest"
+    permissions:
+      contents: read
+      pull-requests: write # post the cost difference as a comment
+    steps:
+      # Infracost compares the pull request (head) with its target branch (base); no AWS access needed.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: head
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          path: base
+          persist-credentials: false
+      - uses: infracost/actions/diff@a5783eb98adc93aa7a0049fce0abb06fdd30770a # v5.0.1
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+          base-path: base
+          head-path: head

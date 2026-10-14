@@ -1,0 +1,9 @@
+# Checkov settings for infra/, used by `make infra-check` and .github/workflows/terraform.yml.
+# Exceptions for one resource sit next to it as `#checkov:skip=<ID>:<reason>`; only project-wide ones go here.
+framework:
+  - terraform
+skip-check:
+  # Registry modules are pinned to an exact version (vpc 6.7.3, eks 21.29.0, ...) rather than a git
+  # commit hash, so Dependabot can propose upgrades and the registry shows what changed.
+  # Proposed — ADR pending.
+  - CKV_TF_1

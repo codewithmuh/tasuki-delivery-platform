@@ -1,0 +1,177 @@
+# Defaults for every Tasuki service. Per-service values: deploy/apps/services/<release>.yaml.
+# Per-environment values: deploy/apps/overlays/<env>/values/. The runtime contract these defaults
+# implement is in docs/architecture.md ("Runtime contract (every service)").
+
+image:
+  # Required. ghcr.io/codewithmuh/tasuki-delivery-platform/<service>
+  repository: ""
+  # Required, and never "latest": Kyverno rejects mutable tags (deploy/policies/).
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# The image's entrypoint/cmd are used when these are empty.
+command: []
+args: []
+
+# Ignored when autoscaling.enabled (the HPA owns the replica count then).
+replicas: 2
+revisionHistoryLimit: 5
+
+# One container port named "http": API traffic, /healthz, /readyz and, unless metrics.port is set, /metrics.
+port: 8080
+
+service:
+  # Callers use http://<release> (port 80) inside the namespace.
+  port: 80
+
+metrics:
+  # Set when /metrics is served on its own port (orders workers use 9100).
+  port: null
+  path: /metrics
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+
+probes:
+  # Liveness never checks dependencies; readiness does (runtime contract).
+  liveness:
+    httpGet:
+      path: /healthz
+      port: http
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+  readiness:
+    httpGet:
+      path: /readyz
+      port: http
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 2
+  # Holds liveness/readiness back until the process is up: 30 x 2 s = 60 s to start.
+  startup:
+    httpGet:
+      path: /healthz
+      port: http
+    periodSeconds: 2
+    timeoutSeconds: 2
+    failureThreshold: 30
+
+# Graceful shutdown. On delete, the kubelet runs preStop (a plain sleep while the endpoint is removed from
+# Services and load balancers), then sends SIGTERM; the app fails readiness and drains for up to
+# shutdownDrainSeconds (20 s in the runtime contract). The chart refuses to render if
+# preStopSleepSeconds + shutdownDrainSeconds > terminationGracePeriodSeconds.
+preStopSleepSeconds: 5
+shutdownDrainSeconds: 20
+terminationGracePeriodSeconds: 30
+
+resources:
+  # No CPU limit on purpose: it only throttles. The memory limit protects the node; Kyverno requires it.
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 128Mi
+
+# Telemetry. Sets the standard OpenTelemetry SDK variables (OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_SERVICE_NAME,
+# OTEL_RESOURCE_ATTRIBUTES) and opens egress to the collector, which runs on every node. Empty: off.
+otlp:
+  endpoint: http://otel-collector.monitoring:4318
+  collectorSelector:
+    app.kubernetes.io/name: opentelemetry-collector
+
+# Plain environment variables: NAME: value. A map (not a list) so environment files can override one key.
+env: {}
+# Environment variables from Secrets: NAME: {secret: <secret name>, key: <key>}.
+# tasuki-app is synced from AWS Secrets Manager by External Secrets (deploy/apps/base/external-secret.yaml).
+secretEnv: {}
+
+# Service images are built for linux/amd64 only (release.yml has no platforms list), while Karpenter also
+# launches Graviton (arm64) nodes. Remove this once images are multi-arch, so pods can land on cheaper arm64.
+nodeSelector:
+  kubernetes.io/arch: amd64
+
+podSecurityContext:
+  runAsNonRoot: true
+  # Numeric on purpose: Kubernetes cannot verify runAsNonRoot for a named user such as distroless "nonroot".
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+# The root filesystem is read-only, so /tmp is the only writable path.
+tmpVolume:
+  sizeLimit: 64Mi
+
+serviceAccount:
+  # No Tasuki service talks to the Kubernetes API in P1, so pods get no API token.
+  automountToken: false
+  annotations: {}
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+pdb:
+  enabled: true
+  # maxUnavailable (not minAvailable) so a single-replica dev Deployment never blocks a node drain.
+  maxUnavailable: 1
+
+# Spread replicas across zones (one AZ loss, design §10) and, softly, across nodes.
+topologySpread:
+  enabled: true
+  zoneWhenUnsatisfiable: DoNotSchedule
+  hostWhenUnsatisfiable: ScheduleAnyway
+
+networkPolicy:
+  enabled: true
+  # Namespace of the Prometheus that scrapes /metrics (kube-prometheus-stack).
+  monitoringNamespace: monitoring
+  # Extra peers allowed to reach the http port, e.g. [{podSelector: {matchLabels: {app.kubernetes.io/name: orders}}}].
+  allowFrom: []
+  # Egress besides DNS. Raw NetworkPolicyEgressRule objects (to + ports).
+  egress: []
+
+ingress:
+  enabled: false
+  className: alb
+  host: ""
+  path: /
+  # Source of ALB traffic for the NetworkPolicy: the public subnets in infra/platform/vpc.tf
+  # (10.40.96.0/24, .97.0/24, .98.0/24). Pods live in the private /19s, so this does not open pod-to-pod.
+  albSourceCidrs:
+    - 10.40.96.0/22
+  # One ALB per environment (group.name), shared by every service's Ingress, keeps the bill down.
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+    alb.ingress.kubernetes.io/healthcheck-path: /readyz
+    alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=30
+
+# Argo CD PreSync hook Job, run before every sync with the same image, env and security context
+# (orders: `python manage.py migrate --noinput`). Django has no migration lock, so not at startup.
+preSyncJob:
+  enabled: false
+  args: []
+  backoffLimit: 2
+  activeDeadlineSeconds: 300
+
+# Scheduled jobs that share the service's image and env: name -> {schedule, args}.
+cronJobs: {}
+
+podAnnotations: {}
+podLabels: {}
+tolerations: []
+affinity: {}
+priorityClassName: ""

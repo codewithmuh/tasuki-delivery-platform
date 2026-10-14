@@ -1,0 +1,8 @@
+apiVersion: v2
+name: prometheus-rules
+description: >-
+  Wraps one plain Prometheus rule file (groups: [...]) in a PrometheusRule object. The rule files stay
+  plain so promtool can check and unit-test them (observability/, mk/slo.mk); the Prometheus Operator
+  only loads PrometheusRule objects.
+type: application
+version: 0.1.0

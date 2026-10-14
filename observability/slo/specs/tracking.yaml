@@ -1,0 +1,34 @@
+# SLO for tracking (docs/design.md §9, "Tracking freshness"). Rules: `make slo-generate`.
+#
+# SLI input: `tracking_event_age_seconds{stream}` (services/fleet/internal/tracking/feed.go), a histogram observed
+# once per live position event written to an SSE viewer, with `now - received_at` at send time; the 10 s bucket is
+# le="10.0" in Prometheus 3. Both streams count (customer tracking and the ops console). Events dropped for slow
+# viewers are never sent, so they are invisible here: TrackingSSEDropsHigh (../../alerts/tracking.yaml) covers them.
+version: "prometheus/v1"
+service: "tracking"
+slos:
+  - name: "freshness"
+    objective: 99
+    description: "Share of position events younger than 10 s when they are sent to a viewer (28 days)."
+    sli:
+      events:
+        error_query: |
+          sum(rate(tracking_event_age_seconds_count{namespace="tasuki-prod"}[{{.window}}]))
+          -
+          sum(rate(tracking_event_age_seconds_bucket{namespace="tasuki-prod",le="10.0"}[{{.window}}]))
+        total_query: |
+          sum(rate(tracking_event_age_seconds_count{namespace="tasuki-prod"}[{{.window}}]))
+          > 0
+    alerting:
+      name: TrackingFreshnessBudgetBurn
+      labels:
+        category: freshness
+      annotations:
+        description: "Customers and merchants see courier positions older than 10 s too often."
+        runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-tracking-freshness.md"
+      page_alert:
+        labels:
+          severity: page
+      ticket_alert:
+        labels:
+          severity: ticket

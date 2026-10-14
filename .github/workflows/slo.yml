@@ -1,0 +1,135 @@
+name: slo
+
+# SLOs as code and the rollout gate. No path filters: these jobs are cheap, and required checks must always report.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least privilege by default; jobs ask for more only when they need it.
+permissions:
+  contents: read
+
+concurrency:
+  group: slo-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Pinned tools, verified by SHA-256 from each project's release checksums. Bump version and checksum together.
+  SLOTH_VERSION: v0.16.0
+  SLOTH_SHA256: 1cecaa50853abbb3669a928612b523df8174d258ea6f2a3c8f048e5fc5af90b2 # sloth-linux-amd64
+  PROMETHEUS_VERSION: 3.15.0
+  PROMETHEUS_SHA256: 2a542df32eac02ee17b9d844fb2aa1de00dafa5476579ba8a3ba862e9d572ea0 # prometheus-3.15.0.linux-amd64.tar.gz
+
+jobs:
+  slo-rules:
+    name: SLO rules (sloth, promtool)
+    runs-on: ubuntu-24.04 # pinned: upgrade deliberately, not when GitHub moves "latest"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install sloth and promtool (pinned, checksum-verified)
+        run: |
+          bin="$RUNNER_TEMP/bin"
+          mkdir -p "$bin" "$RUNNER_TEMP/dl"
+          cd "$RUNNER_TEMP/dl"
+          curl -fsSLo sloth "https://github.com/slok/sloth/releases/download/${SLOTH_VERSION}/sloth-linux-amd64"
+          echo "${SLOTH_SHA256}  sloth" | sha256sum --check --strict
+          install -m 0755 sloth "$bin/sloth"
+          tarball="prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz"
+          curl -fsSLO "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/${tarball}"
+          echo "${PROMETHEUS_SHA256}  ${tarball}" | sha256sum --check --strict
+          tar -xzf "$tarball" --strip-components=1 "prometheus-${PROMETHEUS_VERSION}.linux-amd64/promtool"
+          install -m 0755 promtool "$bin/promtool"
+          echo "$bin" >> "$GITHUB_PATH"
+      - name: Regenerate the rules from the Sloth specs
+        run: make slo-generate
+      - name: Fail if the committed rules are stale
+        run: |
+          if [ -n "$(git status --porcelain -- observability/slo/generated)" ]; then
+            git --no-pager diff -- observability/slo/generated
+            git status --short -- observability/slo/generated
+            echo "::error::observability/slo/generated is out of date. Run 'make slo-generate' and commit the result."
+            exit 1
+          fi
+      - name: Check and unit-test the rules (promtool)
+        run: make slo-check
+
+  go:
+    name: Go rollout-gate (lint, tests)
+    runs-on: ubuntu-24.04 # pinned: upgrade deliberately, not when GitHub moves "latest"
+    defaults:
+      run:
+        working-directory: tools/rollout-gate
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27"
+          cache-dependency-path: tools/rollout-gate/go.sum
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.14.0
+          working-directory: tools/rollout-gate
+      - name: Test (race detector, 80% coverage gate)
+        run: |
+          go test -race -covermode=atomic -coverprofile=coverage.out ./...
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {sub("%", "", $3); print $3}')
+          echo "Total coverage: ${total}%"
+          if awk -v t="$total" 'BEGIN { exit !(t + 0 < 80) }'; then
+            echo "::error::Go coverage ${total}% is below 80%"
+            exit 1
+          fi
+
+  image:
+    name: Image rollout-gate (build, scan, smoke test)
+    needs: [go]
+    runs-on: ubuntu-24.04 # pinned: upgrade deliberately, not when GitHub moves "latest"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: tools/rollout-gate
+          load: true
+          push: false
+          tags: rollout-gate:ci
+          cache-from: type=gha,scope=rollout-gate
+          cache-to: type=gha,mode=max,scope=rollout-gate
+      - name: Build arm64 too (cross-compiled, no QEMU; proves the multi-arch build)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: tools/rollout-gate
+          platforms: linux/arm64
+          push: false
+          cache-from: type=gha,scope=rollout-gate
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.75.0 # the action's default (v0.70.0) has a path-traversal advisory fixed in 0.71.1
+          scan-type: image
+          image-ref: rollout-gate:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Smoke test (starts, becomes ready, fails closed without Prometheus)
+        run: |
+          docker run --detach --name smoke --read-only --cap-drop ALL \
+            --publish "127.0.0.1:9000:8080" rollout-gate:ci
+          for _ in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:9000/readyz; then break; fi
+            sleep 1
+          done
+          curl --fail --silent --show-error http://127.0.0.1:9000/readyz
+          # No Prometheus is reachable from the container, so the default fail mode must block the canary.
+          decision=$(curl --fail --silent --show-error "http://127.0.0.1:9000/v1/gate?service=orders&slo=availability")
+          echo "$decision"
+          echo "$decision" | jq -e '.allowed == false and .cause == "prometheus_error"'
+          docker stop --time 20 smoke # graceful shutdown must finish in time
+          docker logs smoke | tail -n 5
