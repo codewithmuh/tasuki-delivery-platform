@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1
 
-FROM ghcr.io/astral-sh/uv:0.13.0 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.1 AS uv
 
 # ---- build: resolve the locked dependencies into a virtualenv ----
-FROM python:3.13-slim-trixie AS build
+FROM python:3.14-slim-trixie AS build
 COPY --from=uv /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_PROJECT_ENVIRONMENT=/app/.venv
 WORKDIR /app
@@ -17,7 +17,7 @@ COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --no-editable
 
 # ---- runtime: slim image, only the virtualenv, non-root ----
-FROM python:3.13-slim-trixie
+FROM python:3.14-slim-trixie
 ARG APP_VERSION=0.0.0
 ENV PATH="/app/.venv/bin:${PATH}" PYTHONUNBUFFERED=1 APP_VERSION=${APP_VERSION}
 # pip is only needed to build, and its bundled libraries (urllib3, msgpack, …) show up in CVE scans.
