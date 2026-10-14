@@ -58,4 +58,4 @@ def tracking_token(order_id: str, promised_at: datetime) -> str:
 
 
 def tracking_url(order_id: str, promised_at: datetime) -> str:
-    return f"{settings.TRACKING_BASE_URL}/v1/track/{tracking_token(order_id, promised_at)}"
+    return f"{settings.TRACKING_PAGE_URL}/track/{tracking_token(order_id, promised_at)}"

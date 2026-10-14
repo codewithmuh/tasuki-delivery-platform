@@ -1,0 +1,39 @@
+# console (services/console): the dispatcher's live map and the customer tracking page. Static files served by
+# nginx-unprivileged; the browser opens the server-sent event streams on tracking itself, so nginx proxies
+# nothing and the pod needs no egress beyond DNS (the chart's default). Orders links customers here
+# (TRACKING_PAGE_URL in overlays/<env>/values/orders.yaml).
+image:
+  repository: ghcr.io/codewithmuh/tasuki-delivery-platform/console
+port: 8080
+
+# The image's nginx user. Its entrypoint renders the config into /tmp, the chart's emptyDir; the root filesystem
+# stays read-only.
+podSecurityContext:
+  runAsUser: 101
+  runAsGroup: 101
+  fsGroup: 101
+
+env:
+  # Tracking's origin as the browser sees it, written into /config.json and the CSP at start. Empty: the same
+  # origin, for when an ingress routes /v1/* to tracking. Dev sets it for port-forwarding (overlays/dev/values/).
+  CONSOLE_TRACKING_BASE_URL: ""
+
+# nginx answers /healthz and /readyz itself (no dependencies), and the chart's preStop sleep keeps it serving
+# while the endpoint is removed; SIGQUIT (the image's stop signal) then finishes in-flight requests.
+# No /metrics: stub_status listens on 127.0.0.1:8081 for an nginx-prometheus-exporter sidecar the chart does not
+# support yet. Access logs (JSON) reach Loki through the collector, which reads them from the node.
+metrics:
+  serviceMonitor:
+    enabled: false
+# nginx speaks no OpenTelemetry.
+otlp:
+  endpoint: ""
+
+resources:
+  requests: {cpu: 10m, memory: 32Mi}
+  limits: {memory: 64Mi}
+
+# Nobody in the cluster calls the console: browsers come through a port-forward today (which NetworkPolicy does not
+# see) and through the ALB once ingress.enabled is set (the chart then admits the ALB's subnets).
+networkPolicy:
+  allowFrom: []

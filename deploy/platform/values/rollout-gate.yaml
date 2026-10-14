@@ -1,0 +1,47 @@
+# rollout-gate (tools/rollout-gate): may a service start a canary now? Argo Rollouts asks it in step 1 of every
+# Rollout (ClusterAnalysisTemplate error-budget-gate); it answers from the Sloth budget series in Prometheus.
+# Rendered with deploy/charts/service by the rollout-gate Application (deploy/platform/argo-rollouts.yaml), after
+# overlays/prod/values/common.yaml (image tag, 2 replicas).
+image:
+  repository: ghcr.io/codewithmuh/tasuki-delivery-platform/rollout-gate
+port: 8080
+
+service:
+  # The ClusterAnalysisTemplate calls rollout-gate.monitoring:8080, as in tools/rollout-gate/README.md.
+  port: 8080
+
+env:
+  LOG_LEVEL: info
+  SHUTDOWN_TIMEOUT: 20s
+  PROMETHEUS_URL: http://kube-prometheus-stack-prometheus.monitoring:9090
+  # Block when Prometheus or the budget series are missing (the default, spelled out): a deploy that waits costs
+  # less than one that ships blind. RolloutGateBudgetUnknown opens a ticket. Proposed — ADR pending.
+  FAIL_MODE: closed
+  # Allow a canary while any budget is left (> 0 %).
+  MIN_BUDGET_REMAINING: "0"
+
+# The gate does not speak OpenTelemetry; its metrics are scraped from /metrics.
+otlp:
+  endpoint: ""
+
+resources:
+  requests: {cpu: 10m, memory: 32Mi}
+  limits: {memory: 64Mi}
+
+networkPolicy:
+  allowFrom:
+    # The Argo Rollouts controller runs the analysis (the web provider's request comes from its pod).
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: argo-rollouts
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: argo-rollouts
+  egress:
+    # Prometheus (kube-prometheus-stack, same namespace), for the instant queries.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - port: 9090

@@ -1,0 +1,12 @@
+apiVersion: v2
+name: postgres-backup
+description: >-
+  Where a CloudNativePG cluster archives its WAL and base backups: one Barman Cloud plugin ObjectStore in an S3
+  bucket that outlives the cluster. Values come from the GitOps bridge (deploy/platform/tasuki.yaml, orders-db-backups).
+type: application
+# Bump on every template change; Argo CD renders the chart straight from git, so this is documentation.
+version: 0.1.0
+kubeVersion: ">=1.33.0-0"
+home: https://github.com/codewithmuh/tasuki-delivery-platform
+maintainers:
+  - name: codewithmuh

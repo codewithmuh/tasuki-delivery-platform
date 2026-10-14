@@ -5,8 +5,10 @@
 # would double the cost for nothing. Prod overlay: 2 instances (primary + streaming standby in another
 # AZ), which is what the "PostgreSQL primary fails" game day (design.md §10) needs.
 #
-# Not yet: backups and point-in-time recovery to S3 (the Barman Cloud plugin, an S3 bucket and a Pod
-# Identity role from Terraform). Until then, losing the volume loses the data.
+# Backups: continuous WAL archiving plus scheduled base backups to S3, through the Barman Cloud plugin
+# (deploy/platform/data-operators.yaml). Where: the ObjectStore orders-db-backups (deploy/platform/tasuki.yaml).
+# Credentials: EKS Pod Identity binds this cluster's ServiceAccount (orders-db, created by the operator) to an IAM
+# role that may only use this environment's prefix (infra/platform/backups.tf). Restore: deploy/README.md.
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -33,3 +35,33 @@ spec:
   affinity:
     enablePodAntiAffinity: true
     topologyKey: topology.kubernetes.io/zone
+  # WAL goes to S3 as each segment fills, or after archive_timeout (CloudNativePG default: 5 min) on a quiet
+  # database, so at most about 5 minutes of commits are lost with the volumes (design.md §10: RPO 15 min).
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: orders-db-backups
+---
+# Base backups, the starting point of every restore; the archived WAL then replays to any moment after one.
+# immediate: one as soon as the cluster is up, because the cluster lives only for a session (make aws-up/-down)
+# and a daily schedule alone may never fire in it. Dev: then daily. Prod overlay: hourly, which keeps the WAL
+# a restore has to replay short (RTO) and gives a session several restore points; the RPO comes from WAL, not
+# from this schedule. Six-field cron (seconds first), in UTC: 18:00 UTC is 03:00 in Tokyo.
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: orders-db
+  annotations:
+    # After the Cluster is Healthy (wave 0, the default), so the first backup finds a primary.
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  schedule: "0 0 18 * * *"
+  immediate: true
+  # Backups belong to this ScheduledBackup: deleting it deletes their Backup objects (not the data in S3).
+  backupOwnerReference: self
+  cluster:
+    name: orders-db
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io

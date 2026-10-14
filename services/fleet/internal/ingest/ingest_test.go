@@ -26,7 +26,7 @@ import (
 	"github.com/codewithmuh/tasuki-delivery-platform/services/fleet/internal/kit"
 )
 
-const secret = "test-secret-that-is-at-least-32-bytes-long"
+const secret = "test-secret-that-is-at-least-32-bytes-long" // gitleaks:allow (test fixture)
 
 var now = time.Date(2026, 10, 14, 3, 0, 0, 0, time.UTC)
 

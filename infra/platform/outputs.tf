@@ -37,3 +37,13 @@ output "karpenter_node_role_name" {
   description = "IAM role for Karpenter-launched nodes (EC2NodeClass spec.role)."
   value       = module.karpenter.node_iam_role_name
 }
+
+output "backup_bucket" {
+  description = "S3 bucket for PostgreSQL backups (from infra/bootstrap). bootstrap.sh passes it to Argo CD (cluster annotation backup_bucket)."
+  value       = data.aws_s3_bucket.backups.id
+}
+
+output "backup_session" {
+  description = "When this platform was created; this session's backups go under <namespace>/<session>/ (cluster annotation backup_session)."
+  value       = terraform_data.backup_session.output
+}

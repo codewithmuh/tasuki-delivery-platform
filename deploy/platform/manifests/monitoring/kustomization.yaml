@@ -3,3 +3,4 @@ kind: Kustomization
 namespace: monitoring
 resources:
   - grafana-admin.yaml
+  - alertmanager-slack.yaml

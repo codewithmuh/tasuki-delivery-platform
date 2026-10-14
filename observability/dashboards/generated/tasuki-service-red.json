@@ -1,0 +1,1442 @@
+{
+  "id": null,
+  "uid": "tasuki-service-red",
+  "title": "Tasuki service RED",
+  "description": "Requests, errors and latency by route for one service, with CPU and memory saturation.",
+  "tags": [
+    "tasuki",
+    "red"
+  ],
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "version": 1,
+  "links": [
+    {
+      "title": "Tasuki dashboards",
+      "type": "dashboards",
+      "tags": [
+        "tasuki"
+      ],
+      "asDropdown": true,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "Runbooks",
+      "type": "link",
+      "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/README.md",
+      "tooltip": "One runbook per alert",
+      "icon": "doc",
+      "targetBlank": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Data source",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "options": [],
+        "refresh": 1,
+        "regex": ""
+      },
+      {
+        "name": "namespace",
+        "label": "Namespace",
+        "description": "tasuki-prod or tasuki-dev. Both share one cluster and one Prometheus; only prod has SLOs.",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(up{namespace=~\"tasuki-.*\"}, namespace)",
+        "definition": "label_values(up{namespace=~\"tasuki-.*\"}, namespace)",
+        "current": {
+          "selected": true,
+          "text": "tasuki-prod",
+          "value": "tasuki-prod"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "options": [],
+        "refresh": 2,
+        "regex": "",
+        "sort": 1
+      },
+      {
+        "name": "service",
+        "label": "Service",
+        "description": "Kubernetes Service name; Prometheus adds it as the `service` label when it scrapes.",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(http_requests_total{namespace=\"$namespace\"}, service)",
+        "definition": "label_values(http_requests_total{namespace=\"$namespace\"}, service)",
+        "current": {
+          "selected": true,
+          "text": "orders",
+          "value": "orders"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "options": [],
+        "refresh": 2,
+        "regex": "",
+        "sort": 1
+      },
+      {
+        "name": "route",
+        "label": "Route",
+        "description": "Route pattern. Probe and metrics routes are always excluded from the panels.",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(http_requests_total{namespace=\"$namespace\", service=\"$service\"}, route)",
+        "definition": "label_values(http_requests_total{namespace=\"$namespace\", service=\"$service\"}, route)",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "hide": 0,
+        "includeAll": true,
+        "multi": true,
+        "options": [],
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "allValue": ".*"
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Rate and errors",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": 2,
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "type": "stat",
+      "title": "Requests / s",
+      "description": "All application requests to the selected routes (probes and /metrics excluded).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(http_requests_total{namespace=\"$namespace\", service=\"$service\", route=~\"$route\", route!~\"(GET )?/(healthz|readyz|metrics)\"}[$__rate_interval]))",
+          "legendFormat": "requests / s",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 3,
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
+      "type": "stat",
+      "title": "5xx ratio",
+      "description": "Share of requests answered with a 5xx: the server's fault. For orders, POST /v1/quotes and POST /v1/orders together have a 99.9 % availability SLO, so 0.1 % is the whole budget (orange).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(http_requests_total{namespace=\"$namespace\", service=\"$service\", route=~\"$route\", route!~\"(GET )?/(healthz|readyz|metrics)\", status=~\"5..\"}[$__rate_interval])) / sum(rate(http_requests_total{namespace=\"$namespace\", service=\"$service\", route=~\"$route\", route!~\"(GET )?/(healthz|readyz|metrics)\"}[$__rate_interval]))",
+          "legendFormat": "5xx",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-orders-availability",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-orders-availability.md",
+          "targetBlank": true
+        },
+        {
+          "title": "Runbook: service-unavailable",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/service-unavailable.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.001
+              },
+              {
+                "color": "red",
+                "value": 0.01
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 4,
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "type": "stat",
+      "title": "4xx ratio",
+      "description": "Share of requests answered with a 4xx: the client's request was refused. Not an SLO, but a jump usually means a broken client or a secret mismatch (401 when a token secret was rotated on one side).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(http_requests_total{namespace=\"$namespace\", service=\"$service\", route=~\"$route\", route!~\"(GET )?/(healthz|readyz|metrics)\", status=~\"4..\"}[$__rate_interval])) / sum(rate(http_requests_total{namespace=\"$namespace\", service=\"$service\", route=~\"$route\", route!~\"(GET )?/(healthz|readyz|metrics)\"}[$__rate_interval]))",
+          "legendFormat": "4xx",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.05
+              },
+              {
+                "color": "red",
+                "value": 0.2
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 5,
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "type": "stat",
+      "title": "p95 latency",
+      "description": "95th percentile over the selected routes, streaming (SSE) routes excluded.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{namespace=\"$namespace\", service=\"$service\", route=~\"$route\", route!~\"(GET )?/(healthz|readyz|metrics)\", route!~\".*/stream\"}[$__rate_interval])))",
+          "legendFormat": "p95",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.3
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 6,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "type": "timeseries",
+      "title": "Requests / s by route",
+      "description": "Traffic per route pattern. A route that drops to zero while others carry on points at a client.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (method, route) (rate(http_requests_total{namespace=\"$namespace\", service=\"$service\", route=~\"$route\", route!~\"(GET )?/(healthz|readyz|metrics)\"}[$__rate_interval]))",
+          "legendFormat": "{{method}} {{route}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "type": "timeseries",
+      "title": "Responses / s by status class",
+      "description": "The same traffic split by status class, stacked. 503 from fleet-ingest is deliberate load shedding (Kafka is full or slow), and from any service it can mean \"not ready\" during a rollout.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(http_requests_total{namespace=\"$namespace\", service=\"$service\", route=~\"$route\", route!~\"(GET )?/(healthz|readyz|metrics)\", status=~\"2..\"}[$__rate_interval]))",
+          "legendFormat": "2xx",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(http_requests_total{namespace=\"$namespace\", service=\"$service\", route=~\"$route\", route!~\"(GET )?/(healthz|readyz|metrics)\", status=~\"3..\"}[$__rate_interval]))",
+          "legendFormat": "3xx",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(http_requests_total{namespace=\"$namespace\", service=\"$service\", route=~\"$route\", route!~\"(GET )?/(healthz|readyz|metrics)\", status=~\"4..\"}[$__rate_interval]))",
+          "legendFormat": "4xx",
+          "range": true,
+          "instant": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(http_requests_total{namespace=\"$namespace\", service=\"$service\", route=~\"$route\", route!~\"(GET )?/(healthz|readyz|metrics)\", status=~\"5..\"}[$__rate_interval]))",
+          "legendFormat": "5xx",
+          "range": true,
+          "instant": false,
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 30,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "type": "timeseries",
+      "title": "5xx ratio by route",
+      "description": "Share of each route's requests that failed with a 5xx. Only routes with at least one 5xx in the window appear. The dashed line is the orders availability SLO's whole budget (0.1 %).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (route) (rate(http_requests_total{namespace=\"$namespace\", service=\"$service\", route=~\"$route\", route!~\"(GET )?/(healthz|readyz|metrics)\", status=~\"5..\"}[$__rate_interval])) / sum by (route) (rate(http_requests_total{namespace=\"$namespace\", service=\"$service\", route=~\"$route\", route!~\"(GET )?/(healthz|readyz|metrics)\"}[$__rate_interval]))",
+          "legendFormat": "{{route}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-orders-availability",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-orders-availability.md",
+          "targetBlank": true
+        },
+        {
+          "title": "Runbook: service-unavailable",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/service-unavailable.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.001
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "type": "timeseries",
+      "title": "4xx / s by route and status",
+      "description": "Refused requests by exact status: 401 (token), 404, 409 (illegal transition, offer taken), 422 (validation, idempotency key reused with another body), 429 (rate limit).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (route, status) (rate(http_requests_total{namespace=\"$namespace\", service=\"$service\", route=~\"$route\", route!~\"(GET )?/(healthz|readyz|metrics)\", status=~\"4..\"}[$__rate_interval]))",
+          "legendFormat": "{{status}} {{route}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Duration (streaming routes excluded)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      }
+    },
+    {
+      "id": 11,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 23
+      },
+      "type": "timeseries",
+      "title": "p50 latency by route",
+      "description": "Median request duration per route: the typical request.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.5, sum by (le, route) (rate(http_request_duration_seconds_bucket{namespace=\"$namespace\", service=\"$service\", route=~\"$route\", route!~\"(GET )?/(healthz|readyz|metrics)\", route!~\".*/stream\"}[$__rate_interval])))",
+          "legendFormat": "{{route}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 23
+      },
+      "type": "timeseries",
+      "title": "p95 latency by route",
+      "description": "95th percentile per route. The dashed line is the orders latency SLO (95 % of POST /v1/orders under 300 ms); it applies to that route only. Quantiles from classic histograms are interpolated inside a bucket, so read them as \"between two bucket edges\".",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le, route) (rate(http_request_duration_seconds_bucket{namespace=\"$namespace\", service=\"$service\", route=~\"$route\", route!~\"(GET )?/(healthz|readyz|metrics)\", route!~\".*/stream\"}[$__rate_interval])))",
+          "legendFormat": "{{route}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-orders-latency",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-orders-latency.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.3
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 23
+      },
+      "type": "timeseries",
+      "title": "p99 latency by route",
+      "description": "99th percentile per route: the slowest 1 %, where timeouts and lock waits show first.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, sum by (le, route) (rate(http_request_duration_seconds_bucket{namespace=\"$namespace\", service=\"$service\", route=~\"$route\", route!~\"(GET )?/(healthz|readyz|metrics)\", route!~\".*/stream\"}[$__rate_interval])))",
+          "legendFormat": "{{route}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "row",
+      "title": "Saturation (cAdvisor, kube-state-metrics)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 31
+      }
+    },
+    {
+      "id": 15,
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 32
+      },
+      "type": "timeseries",
+      "title": "CPU per pod vs request",
+      "description": "CPU used by each pod of the service, in cores, against the CPU request per pod (dashed series). Tasuki sets no CPU limits, so there is no throttling: a pod far above its request competes with its neighbours for the node, and the request should grow.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"$namespace\", pod=~\"$service-[a-z0-9]{8,10}-[a-z0-9]{5}\", container!=\"\"}[$__rate_interval]))",
+          "legendFormat": "{{pod}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max(sum by (pod) (kube_pod_container_resource_requests{namespace=\"$namespace\", pod=~\"$service-[a-z0-9]{8,10}-[a-z0-9]{5}\", resource=\"cpu\"}))",
+          "legendFormat": "request per pod",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:cores",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "request per pod"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 16,
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 32
+      },
+      "type": "timeseries",
+      "title": "Memory per pod vs limit",
+      "description": "Working-set memory (what the kernel counts for the OOM killer) per pod, against the memory limit per pod. A pod reaching the limit is OOM-killed and restarted.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"$namespace\", pod=~\"$service-[a-z0-9]{8,10}-[a-z0-9]{5}\", container!=\"\"})",
+          "legendFormat": "{{pod}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max(sum by (pod) (kube_pod_container_resource_limits{namespace=\"$namespace\", pod=~\"$service-[a-z0-9]{8,10}-[a-z0-9]{5}\", resource=\"memory\"}))",
+          "legendFormat": "limit per pod",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "limit per pod"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 17,
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 32
+      },
+      "type": "timeseries",
+      "title": "Ready pods and restarts",
+      "description": "Pods passing their readiness probe, and container restarts in the last hour. Fewer ready pods than replicas during a rollout is normal; restarts outside one are not.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(kube_pod_status_ready{namespace=\"$namespace\", pod=~\"$service-[a-z0-9]{8,10}-[a-z0-9]{5}\", condition=\"true\"})",
+          "legendFormat": "ready pods",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"$namespace\", pod=~\"$service-[a-z0-9]{8,10}-[a-z0-9]{5}\"}[1h]))",
+          "legendFormat": "restarts (last 1 h)",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: service-unavailable",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/service-unavailable.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 18,
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 32
+      },
+      "type": "stat",
+      "title": "Containers last killed by OOM",
+      "description": "Containers whose most recent termination was an OOM kill (kube-state-metrics keeps the last reason until the next one). Above zero: raise the memory limit or find the leak.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(kube_pod_container_status_last_terminated_reason{namespace=\"$namespace\", pod=~\"$service-[a-z0-9]{8,10}-[a-z0-9]{5}\", reason=\"OOMKilled\"}) or vector(0)",
+          "legendFormat": "OOM killed",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Tasuki overview",
+          "url": "/d/tasuki-overview?${__url_time_range}&var-datasource=${datasource}&var-namespace=${namespace}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    }
+  ]
+}

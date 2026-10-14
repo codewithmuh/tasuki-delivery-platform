@@ -7,7 +7,7 @@ import (
 
 func TestNamesAndGet(t *testing.T) {
 	names := Names()
-	for _, want := range []string{"normal-weekday", "rainy-friday", "small"} {
+	for _, want := range []string{"normal-weekday", "rainy-friday", "rainy-friday-design-scale", "small"} {
 		if !slices.Contains(names, want) {
 			t.Errorf("Names() = %v, missing %q", names, want)
 		}

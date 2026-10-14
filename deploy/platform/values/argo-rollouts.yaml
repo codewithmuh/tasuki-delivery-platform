@@ -1,0 +1,33 @@
+# Argo Rollouts (argo-helm "argo-rollouts"). Rollouts: deploy/charts/service (rollout.*), prod only.
+
+controller:
+  # Leader election: with two replicas a node drain or a restart never leaves a canary without a controller.
+  replicas: 2
+  pdb:
+    enabled: true
+    maxUnavailable: 1
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 256Mi}
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      # rollout_info and friends carry the Rollout's namespace in their own "namespace" label, which Prometheus
+      # renames to exported_namespace (the target's namespace wins). Put it back, so alerts and the
+      # Alertmanager routes see namespace="tasuki-prod". The chart has no honorLabels setting.
+      metricRelabelings:
+        - sourceLabels: [exported_namespace]
+          regex: (.+)
+          targetLabel: namespace
+        - regex: exported_namespace
+          action: labeldrop
+
+# There is no traffic router (the Service splits by pod count), so the controller needs none of the RBAC for
+# Istio, SMI, the AWS Load Balancer Controller, Gateway API, ...
+providerRBAC:
+  enabled: false
+
+# No dashboard: `kubectl argo rollouts get rollout <name> --watch` shows the same.
+dashboard:
+  enabled: false

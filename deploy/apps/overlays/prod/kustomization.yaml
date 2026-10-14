@@ -69,3 +69,11 @@ patches:
       - op: replace
         path: /spec/instances
         value: 2
+  # A base backup every hour on the hour (base/postgres.yaml says why); WAL is archived continuously anyway.
+  - target:
+      kind: ScheduledBackup
+      name: orders-db
+    patch: |-
+      - op: replace
+        path: /spec/schedule
+        value: "0 0 * * * *"

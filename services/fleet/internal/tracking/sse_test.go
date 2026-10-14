@@ -21,7 +21,7 @@ import (
 	"github.com/codewithmuh/tasuki-delivery-platform/services/fleet/internal/kit"
 )
 
-const secret = "test-secret-that-is-at-least-32-bytes-long"
+const secret = "test-secret-that-is-at-least-32-bytes-long" // gitleaks:allow (test fixture)
 
 func discard() *slog.Logger { return slog.New(slog.NewJSONHandler(io.Discard, nil)) }
 

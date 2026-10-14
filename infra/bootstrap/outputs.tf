@@ -14,3 +14,13 @@ output "state_bucket" {
   description = "GitHub variable TF_STATE_BUCKET: the S3 bucket that holds the Terraform state."
   value       = local.state_bucket
 }
+
+output "backup_bucket" {
+  description = "S3 bucket for PostgreSQL backups (infra/platform reads it by name; it survives make aws-down)."
+  value       = aws_s3_bucket.backups.id
+}
+
+output "backup_kms_key_arn" {
+  description = "KMS key that encrypts the backup bucket (alias/tasuki-pg-backups)."
+  value       = aws_kms_key.backups.arn
+}

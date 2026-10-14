@@ -1,4 +1,6 @@
 # Weekly, grouped updates so dependency PRs stay reviewable. Pinned action SHAs are updated too.
+# Helm chart versions inside Argo CD Applications (deploy/) are invisible to Dependabot; Renovate's
+# argocd manager handles only those (renovate.json).
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -8,19 +10,44 @@ updates:
       actions: { patterns: ["*"] }
 
   - package-ecosystem: uv
-    directory: /services/api-python
+    directory: /services/orders
     schedule: { interval: weekly }
     groups:
       python: { patterns: ["*"] }
 
   - package-ecosystem: gomod
-    directory: /services/api-go
+    directories: [/services/fleet, /services/simulator, /tools/rollout-gate]
     schedule: { interval: weekly }
     groups:
       go: { patterns: ["*"] }
 
+  - package-ecosystem: npm
+    directory: /services/console
+    schedule: { interval: weekly }
+    groups:
+      npm: { patterns: ["*"] }
+
+  - package-ecosystem: terraform
+    directories: [/infra/bootstrap, /infra/platform]
+    schedule: { interval: weekly }
+    groups:
+      terraform: { patterns: ["*"] }
+
   - package-ecosystem: docker
-    directories: [/services/api-python, /services/api-go]
+    directories:
+      - /services/orders
+      - /services/fleet
+      - /services/simulator
+      - /services/routing
+      - /services/console
+      - /tools/rollout-gate
     schedule: { interval: weekly }
     groups:
       base-images: { patterns: ["*"] }
+
+  # Images of the local stack: PostgreSQL, Valkey, Kafka.
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      compose-images: { patterns: ["*"] }

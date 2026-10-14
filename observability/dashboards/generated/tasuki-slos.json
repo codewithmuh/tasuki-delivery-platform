@@ -1,0 +1,2958 @@
+{
+  "id": null,
+  "uid": "tasuki-slos",
+  "title": "Tasuki SLOs",
+  "description": "Every SLO's SLI, error budget and burn rates, from the Sloth recording rules (design §9).",
+  "tags": [
+    "tasuki",
+    "slo"
+  ],
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "version": 1,
+  "links": [
+    {
+      "title": "Tasuki dashboards",
+      "type": "dashboards",
+      "tags": [
+        "tasuki"
+      ],
+      "asDropdown": true,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "Runbooks",
+      "type": "link",
+      "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/README.md",
+      "tooltip": "One runbook per alert",
+      "icon": "doc",
+      "targetBlank": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Data source",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "options": [],
+        "refresh": 1,
+        "regex": ""
+      },
+      {
+        "name": "namespace",
+        "label": "Namespace",
+        "description": "tasuki-prod or tasuki-dev. Both share one cluster and one Prometheus; only prod has SLOs.",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(up{namespace=~\"tasuki-.*\"}, namespace)",
+        "definition": "label_values(up{namespace=~\"tasuki-.*\"}, namespace)",
+        "current": {
+          "selected": true,
+          "text": "tasuki-prod",
+          "value": "tasuki-prod"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "options": [],
+        "refresh": 2,
+        "regex": "",
+        "sort": 1
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "name": "Burn-rate alerts",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "enable": true,
+        "hide": false,
+        "iconColor": "red",
+        "expr": "ALERTS{alertstate=\"firing\", alertname=~\".+BudgetBurn\"}",
+        "step": "60s",
+        "titleFormat": "{{alertname}}",
+        "textFormat": "{{severity}} {{sloth_service}} {{sloth_slo}} {{component}}",
+        "tagKeys": "severity,category",
+        "useValueForTime": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "All SLOs",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": 2,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 1
+      },
+      "type": "bargauge",
+      "title": "Error budget remaining (28 days)",
+      "description": "Share of each SLO's 28-day error budget left. Orange at 25 % or less (reliability work first), red at 0 (feature freeze; the rollout gate blocks canaries). See the error-budget policy.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:period_error_budget_remaining:ratio",
+          "legendFormat": "{{sloth_service}} · {{sloth_slo}}",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Error-budget policy",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/slo/error-budget-policy.md",
+          "targetBlank": true
+        },
+        {
+          "title": "Runbook: error-budget-low",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/error-budget-low.md",
+          "targetBlank": true
+        },
+        {
+          "title": "Runbook: error-budget-exhausted",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/error-budget-exhausted.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 0.25
+              }
+            ]
+          },
+          "min": 0,
+          "max": 1,
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color"
+      }
+    },
+    {
+      "id": 3,
+      "gridPos": {
+        "h": 8,
+        "w": 10,
+        "x": 8,
+        "y": 1
+      },
+      "type": "timeseries",
+      "title": "Error budget remaining over time",
+      "description": "How each budget is being spent. A steady slope is normal background errors; a cliff is an incident. Dashed lines: 25 % (SLOErrorBudgetLow) and 0 (SLOErrorBudgetExhausted). The rollout gate reads this same series before every canary step.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:period_error_budget_remaining:ratio",
+          "legendFormat": "{{sloth_service}} · {{sloth_slo}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Error-budget policy",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/slo/error-budget-policy.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "orange",
+                "value": 0.25
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "type": "bargauge",
+      "title": "Burn rate now (last hour)",
+      "description": "Each SLO's error ratio over the last hour divided by its budget. Below 1× the budget lasts the whole 28 days. Orange from 1×; red from 5.6×, the slower page threshold.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate1h / ignoring (sloth_window) slo:error_budget:ratio",
+          "legendFormat": "{{sloth_service}} · {{sloth_slo}}",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:×",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5.6
+              }
+            ]
+          },
+          "min": 0,
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color"
+      }
+    },
+    {
+      "id": 5,
+      "type": "row",
+      "title": "orders · availability (99.9 %)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      }
+    },
+    {
+      "id": 6,
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 0,
+        "y": 10
+      },
+      "type": "stat",
+      "title": "SLI, last hour",
+      "description": "Share of POST /v1/quotes and POST /v1/orders requests that do not return 5xx, over the last hour. Green at or above the 99.9 % objective.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "1 - slo:sli_error:ratio_rate1h{sloth_id=\"orders-availability\"}",
+          "legendFormat": "SLI 1 h",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-orders-availability",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-orders-availability.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0.9990000000000001
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 7,
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 4,
+        "y": 10
+      },
+      "type": "stat",
+      "title": "SLI, 28 days",
+      "description": "Share of POST /v1/quotes and POST /v1/orders requests that do not return 5xx, over the 28-day SLO window. Sloth averages the 5-minute ratios, so a bad quiet hour weighs as much as a bad busy hour.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "1 - slo:sli_error:ratio_rate4w{sloth_id=\"orders-availability\"}",
+          "legendFormat": "SLI 28 d",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-orders-availability",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-orders-availability.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0.9990000000000001
+              }
+            ]
+          },
+          "decimals": 3
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 8,
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 8,
+        "y": 10
+      },
+      "type": "stat",
+      "title": "Error budget remaining",
+      "description": "Share of the 28-day error budget (0.1% of events may be bad) still unspent. 25 % or less opens SLOErrorBudgetLow; 0 or less opens SLOErrorBudgetExhausted, freezes features and makes the rollout gate block this service's canaries.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:period_error_budget_remaining:ratio{sloth_id=\"orders-availability\"}",
+          "legendFormat": "budget left",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-orders-availability",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-orders-availability.md",
+          "targetBlank": true
+        },
+        {
+          "title": "Runbook: error-budget-low",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/error-budget-low.md",
+          "targetBlank": true
+        },
+        {
+          "title": "Runbook: error-budget-exhausted",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/error-budget-exhausted.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 0.25
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 9,
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 12,
+        "y": 10
+      },
+      "type": "timeseries",
+      "title": "Page burn rate (5m & 1h > 13.44×, 30m & 6h > 5.6×)",
+      "description": "Burn rate per alert window: error ratio ÷ budget. The page alert fires when 5m and 1h are both above 13.44× (2 % of the budget in an hour; all of it in about 2 days), or 30m and 6h are both above 5.6× (5 % in 6 hours). The long window proves the burn is real; the short one makes the alert stop soon after the fix.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate5m{sloth_id=\"orders-availability\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"orders-availability\"}",
+          "legendFormat": "5m",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate1h{sloth_id=\"orders-availability\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"orders-availability\"}",
+          "legendFormat": "1h",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate30m{sloth_id=\"orders-availability\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"orders-availability\"}",
+          "legendFormat": "30m",
+          "range": true,
+          "instant": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate6h{sloth_id=\"orders-availability\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"orders-availability\"}",
+          "legendFormat": "6h",
+          "range": true,
+          "instant": false,
+          "refId": "D"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-orders-availability",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-orders-availability.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:×",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 5.6
+              },
+              {
+                "color": "red",
+                "value": 13.44
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 18,
+        "y": 10
+      },
+      "type": "timeseries",
+      "title": "Ticket burn rate (2h & 1d > 2.8×, 6h & 3d > 0.93×)",
+      "description": "The slow-burn windows. The ticket alert fires when 2h and 1d are both above 2.8× (10 % of the budget in a day), or 6h and 3d are both above 0.93× (on course to spend the whole budget in about 30 days). Fix within working hours.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate2h{sloth_id=\"orders-availability\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"orders-availability\"}",
+          "legendFormat": "2h",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate1d{sloth_id=\"orders-availability\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"orders-availability\"}",
+          "legendFormat": "1d",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate6h{sloth_id=\"orders-availability\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"orders-availability\"}",
+          "legendFormat": "6h",
+          "range": true,
+          "instant": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate3d{sloth_id=\"orders-availability\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"orders-availability\"}",
+          "legendFormat": "3d",
+          "range": true,
+          "instant": false,
+          "refId": "D"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-orders-availability",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-orders-availability.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:×",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.93
+              },
+              {
+                "color": "orange",
+                "value": 2.8
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "orders · latency (95 % < 300 ms)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 17
+      }
+    },
+    {
+      "id": 12,
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 0,
+        "y": 18
+      },
+      "type": "stat",
+      "title": "SLI, last hour",
+      "description": "Share of POST /v1/orders requests served in under 300 ms, over the last hour. Green at or above the 95 % objective.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "1 - slo:sli_error:ratio_rate1h{sloth_id=\"orders-latency\"}",
+          "legendFormat": "SLI 1 h",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-orders-latency",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-orders-latency.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0.95
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 13,
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 4,
+        "y": 18
+      },
+      "type": "stat",
+      "title": "SLI, 28 days",
+      "description": "Share of POST /v1/orders requests served in under 300 ms, over the 28-day SLO window. Sloth averages the 5-minute ratios, so a bad quiet hour weighs as much as a bad busy hour.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "1 - slo:sli_error:ratio_rate4w{sloth_id=\"orders-latency\"}",
+          "legendFormat": "SLI 28 d",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-orders-latency",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-orders-latency.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0.95
+              }
+            ]
+          },
+          "decimals": 3
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 14,
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 8,
+        "y": 18
+      },
+      "type": "stat",
+      "title": "Error budget remaining",
+      "description": "Share of the 28-day error budget (5.0% of events may be bad) still unspent. 25 % or less opens SLOErrorBudgetLow; 0 or less opens SLOErrorBudgetExhausted, freezes features and makes the rollout gate block this service's canaries.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:period_error_budget_remaining:ratio{sloth_id=\"orders-latency\"}",
+          "legendFormat": "budget left",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-orders-latency",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-orders-latency.md",
+          "targetBlank": true
+        },
+        {
+          "title": "Runbook: error-budget-low",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/error-budget-low.md",
+          "targetBlank": true
+        },
+        {
+          "title": "Runbook: error-budget-exhausted",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/error-budget-exhausted.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 0.25
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 15,
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 12,
+        "y": 18
+      },
+      "type": "timeseries",
+      "title": "Page burn rate (5m & 1h > 13.44×, 30m & 6h > 5.6×)",
+      "description": "Burn rate per alert window: error ratio ÷ budget. The page alert fires when 5m and 1h are both above 13.44× (2 % of the budget in an hour; all of it in about 2 days), or 30m and 6h are both above 5.6× (5 % in 6 hours). The long window proves the burn is real; the short one makes the alert stop soon after the fix.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate5m{sloth_id=\"orders-latency\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"orders-latency\"}",
+          "legendFormat": "5m",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate1h{sloth_id=\"orders-latency\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"orders-latency\"}",
+          "legendFormat": "1h",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate30m{sloth_id=\"orders-latency\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"orders-latency\"}",
+          "legendFormat": "30m",
+          "range": true,
+          "instant": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate6h{sloth_id=\"orders-latency\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"orders-latency\"}",
+          "legendFormat": "6h",
+          "range": true,
+          "instant": false,
+          "refId": "D"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-orders-latency",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-orders-latency.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:×",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 5.6
+              },
+              {
+                "color": "red",
+                "value": 13.44
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 16,
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 18,
+        "y": 18
+      },
+      "type": "timeseries",
+      "title": "Ticket burn rate (2h & 1d > 2.8×, 6h & 3d > 0.93×)",
+      "description": "The slow-burn windows. The ticket alert fires when 2h and 1d are both above 2.8× (10 % of the budget in a day), or 6h and 3d are both above 0.93× (on course to spend the whole budget in about 30 days). Fix within working hours.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate2h{sloth_id=\"orders-latency\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"orders-latency\"}",
+          "legendFormat": "2h",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate1d{sloth_id=\"orders-latency\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"orders-latency\"}",
+          "legendFormat": "1d",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate6h{sloth_id=\"orders-latency\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"orders-latency\"}",
+          "legendFormat": "6h",
+          "range": true,
+          "instant": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate3d{sloth_id=\"orders-latency\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"orders-latency\"}",
+          "legendFormat": "3d",
+          "range": true,
+          "instant": false,
+          "refId": "D"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-orders-latency",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-orders-latency.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:×",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.93
+              },
+              {
+                "color": "orange",
+                "value": 2.8
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 17,
+      "type": "row",
+      "title": "fleet-state · location freshness (99 % < 2 s)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      }
+    },
+    {
+      "id": 18,
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 0,
+        "y": 26
+      },
+      "type": "stat",
+      "title": "SLI, last hour",
+      "description": "Share of GPS points written to Redis within 2 s of receipt, over the last hour. Green at or above the 99 % objective.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "1 - slo:sli_error:ratio_rate1h{sloth_id=\"fleet-state-location-freshness\"}",
+          "legendFormat": "SLI 1 h",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-fleet-state-location-freshness",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-fleet-state-location-freshness.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0.99
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 19,
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 4,
+        "y": 26
+      },
+      "type": "stat",
+      "title": "SLI, 28 days",
+      "description": "Share of GPS points written to Redis within 2 s of receipt, over the 28-day SLO window. Sloth averages the 5-minute ratios, so a bad quiet hour weighs as much as a bad busy hour.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "1 - slo:sli_error:ratio_rate4w{sloth_id=\"fleet-state-location-freshness\"}",
+          "legendFormat": "SLI 28 d",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-fleet-state-location-freshness",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-fleet-state-location-freshness.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0.99
+              }
+            ]
+          },
+          "decimals": 3
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 20,
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 8,
+        "y": 26
+      },
+      "type": "stat",
+      "title": "Error budget remaining",
+      "description": "Share of the 28-day error budget (1.0% of events may be bad) still unspent. 25 % or less opens SLOErrorBudgetLow; 0 or less opens SLOErrorBudgetExhausted, freezes features and makes the rollout gate block this service's canaries.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:period_error_budget_remaining:ratio{sloth_id=\"fleet-state-location-freshness\"}",
+          "legendFormat": "budget left",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-fleet-state-location-freshness",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-fleet-state-location-freshness.md",
+          "targetBlank": true
+        },
+        {
+          "title": "Runbook: error-budget-low",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/error-budget-low.md",
+          "targetBlank": true
+        },
+        {
+          "title": "Runbook: error-budget-exhausted",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/error-budget-exhausted.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 0.25
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 21,
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 12,
+        "y": 26
+      },
+      "type": "timeseries",
+      "title": "Page burn rate (5m & 1h > 13.44×, 30m & 6h > 5.6×)",
+      "description": "Burn rate per alert window: error ratio ÷ budget. The page alert fires when 5m and 1h are both above 13.44× (2 % of the budget in an hour; all of it in about 2 days), or 30m and 6h are both above 5.6× (5 % in 6 hours). The long window proves the burn is real; the short one makes the alert stop soon after the fix.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate5m{sloth_id=\"fleet-state-location-freshness\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"fleet-state-location-freshness\"}",
+          "legendFormat": "5m",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate1h{sloth_id=\"fleet-state-location-freshness\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"fleet-state-location-freshness\"}",
+          "legendFormat": "1h",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate30m{sloth_id=\"fleet-state-location-freshness\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"fleet-state-location-freshness\"}",
+          "legendFormat": "30m",
+          "range": true,
+          "instant": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate6h{sloth_id=\"fleet-state-location-freshness\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"fleet-state-location-freshness\"}",
+          "legendFormat": "6h",
+          "range": true,
+          "instant": false,
+          "refId": "D"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-fleet-state-location-freshness",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-fleet-state-location-freshness.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:×",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 5.6
+              },
+              {
+                "color": "red",
+                "value": 13.44
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 22,
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 18,
+        "y": 26
+      },
+      "type": "timeseries",
+      "title": "Ticket burn rate (2h & 1d > 2.8×, 6h & 3d > 0.93×)",
+      "description": "The slow-burn windows. The ticket alert fires when 2h and 1d are both above 2.8× (10 % of the budget in a day), or 6h and 3d are both above 0.93× (on course to spend the whole budget in about 30 days). Fix within working hours.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate2h{sloth_id=\"fleet-state-location-freshness\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"fleet-state-location-freshness\"}",
+          "legendFormat": "2h",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate1d{sloth_id=\"fleet-state-location-freshness\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"fleet-state-location-freshness\"}",
+          "legendFormat": "1d",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate6h{sloth_id=\"fleet-state-location-freshness\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"fleet-state-location-freshness\"}",
+          "legendFormat": "6h",
+          "range": true,
+          "instant": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate3d{sloth_id=\"fleet-state-location-freshness\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"fleet-state-location-freshness\"}",
+          "legendFormat": "3d",
+          "range": true,
+          "instant": false,
+          "refId": "D"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-fleet-state-location-freshness",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-fleet-state-location-freshness.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:×",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.93
+              },
+              {
+                "color": "orange",
+                "value": 2.8
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 23,
+      "type": "row",
+      "title": "tracking · freshness (99 % < 10 s)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 33
+      }
+    },
+    {
+      "id": 24,
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 0,
+        "y": 34
+      },
+      "type": "stat",
+      "title": "SLI, last hour",
+      "description": "Share of position events younger than 10 s when sent to a viewer, over the last hour. Green at or above the 99 % objective.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "1 - slo:sli_error:ratio_rate1h{sloth_id=\"tracking-freshness\"}",
+          "legendFormat": "SLI 1 h",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-tracking-freshness",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-tracking-freshness.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0.99
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 25,
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 4,
+        "y": 34
+      },
+      "type": "stat",
+      "title": "SLI, 28 days",
+      "description": "Share of position events younger than 10 s when sent to a viewer, over the 28-day SLO window. Sloth averages the 5-minute ratios, so a bad quiet hour weighs as much as a bad busy hour.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "1 - slo:sli_error:ratio_rate4w{sloth_id=\"tracking-freshness\"}",
+          "legendFormat": "SLI 28 d",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-tracking-freshness",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-tracking-freshness.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0.99
+              }
+            ]
+          },
+          "decimals": 3
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 26,
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 8,
+        "y": 34
+      },
+      "type": "stat",
+      "title": "Error budget remaining",
+      "description": "Share of the 28-day error budget (1.0% of events may be bad) still unspent. 25 % or less opens SLOErrorBudgetLow; 0 or less opens SLOErrorBudgetExhausted, freezes features and makes the rollout gate block this service's canaries.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:period_error_budget_remaining:ratio{sloth_id=\"tracking-freshness\"}",
+          "legendFormat": "budget left",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-tracking-freshness",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-tracking-freshness.md",
+          "targetBlank": true
+        },
+        {
+          "title": "Runbook: error-budget-low",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/error-budget-low.md",
+          "targetBlank": true
+        },
+        {
+          "title": "Runbook: error-budget-exhausted",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/error-budget-exhausted.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 0.25
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 27,
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 12,
+        "y": 34
+      },
+      "type": "timeseries",
+      "title": "Page burn rate (5m & 1h > 13.44×, 30m & 6h > 5.6×)",
+      "description": "Burn rate per alert window: error ratio ÷ budget. The page alert fires when 5m and 1h are both above 13.44× (2 % of the budget in an hour; all of it in about 2 days), or 30m and 6h are both above 5.6× (5 % in 6 hours). The long window proves the burn is real; the short one makes the alert stop soon after the fix.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate5m{sloth_id=\"tracking-freshness\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"tracking-freshness\"}",
+          "legendFormat": "5m",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate1h{sloth_id=\"tracking-freshness\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"tracking-freshness\"}",
+          "legendFormat": "1h",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate30m{sloth_id=\"tracking-freshness\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"tracking-freshness\"}",
+          "legendFormat": "30m",
+          "range": true,
+          "instant": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate6h{sloth_id=\"tracking-freshness\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"tracking-freshness\"}",
+          "legendFormat": "6h",
+          "range": true,
+          "instant": false,
+          "refId": "D"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-tracking-freshness",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-tracking-freshness.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:×",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 5.6
+              },
+              {
+                "color": "red",
+                "value": 13.44
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 28,
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 18,
+        "y": 34
+      },
+      "type": "timeseries",
+      "title": "Ticket burn rate (2h & 1d > 2.8×, 6h & 3d > 0.93×)",
+      "description": "The slow-burn windows. The ticket alert fires when 2h and 1d are both above 2.8× (10 % of the budget in a day), or 6h and 3d are both above 0.93× (on course to spend the whole budget in about 30 days). Fix within working hours.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate2h{sloth_id=\"tracking-freshness\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"tracking-freshness\"}",
+          "legendFormat": "2h",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate1d{sloth_id=\"tracking-freshness\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"tracking-freshness\"}",
+          "legendFormat": "1d",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate6h{sloth_id=\"tracking-freshness\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"tracking-freshness\"}",
+          "legendFormat": "6h",
+          "range": true,
+          "instant": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate3d{sloth_id=\"tracking-freshness\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"tracking-freshness\"}",
+          "legendFormat": "3d",
+          "range": true,
+          "instant": false,
+          "refId": "D"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-tracking-freshness",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-tracking-freshness.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:×",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.93
+              },
+              {
+                "color": "orange",
+                "value": 2.8
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 29,
+      "type": "row",
+      "title": "dispatch · assignment speed (95 % < 60 s)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 41
+      }
+    },
+    {
+      "id": 30,
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 0,
+        "y": 42
+      },
+      "type": "stat",
+      "title": "SLI, last hour",
+      "description": "Share of on-demand orders with an accepted courier within 60 s of confirmation, over the last hour. Green at or above the 95 % objective.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "1 - slo:sli_error:ratio_rate1h{sloth_id=\"dispatch-assignment-speed\"}",
+          "legendFormat": "SLI 1 h",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-dispatch-assignment-speed",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-dispatch-assignment-speed.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0.95
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 31,
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 4,
+        "y": 42
+      },
+      "type": "stat",
+      "title": "SLI, 28 days",
+      "description": "Share of on-demand orders with an accepted courier within 60 s of confirmation, over the 28-day SLO window. Sloth averages the 5-minute ratios, so a bad quiet hour weighs as much as a bad busy hour.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "1 - slo:sli_error:ratio_rate4w{sloth_id=\"dispatch-assignment-speed\"}",
+          "legendFormat": "SLI 28 d",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-dispatch-assignment-speed",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-dispatch-assignment-speed.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0.95
+              }
+            ]
+          },
+          "decimals": 3
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 32,
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 8,
+        "y": 42
+      },
+      "type": "stat",
+      "title": "Error budget remaining",
+      "description": "Share of the 28-day error budget (5.0% of events may be bad) still unspent. 25 % or less opens SLOErrorBudgetLow; 0 or less opens SLOErrorBudgetExhausted, freezes features and makes the rollout gate block this service's canaries.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:period_error_budget_remaining:ratio{sloth_id=\"dispatch-assignment-speed\"}",
+          "legendFormat": "budget left",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-dispatch-assignment-speed",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-dispatch-assignment-speed.md",
+          "targetBlank": true
+        },
+        {
+          "title": "Runbook: error-budget-low",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/error-budget-low.md",
+          "targetBlank": true
+        },
+        {
+          "title": "Runbook: error-budget-exhausted",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/error-budget-exhausted.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 0.25
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 33,
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 12,
+        "y": 42
+      },
+      "type": "timeseries",
+      "title": "Page burn rate (5m & 1h > 13.44×, 30m & 6h > 5.6×)",
+      "description": "Burn rate per alert window: error ratio ÷ budget. The page alert fires when 5m and 1h are both above 13.44× (2 % of the budget in an hour; all of it in about 2 days), or 30m and 6h are both above 5.6× (5 % in 6 hours). The long window proves the burn is real; the short one makes the alert stop soon after the fix.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate5m{sloth_id=\"dispatch-assignment-speed\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"dispatch-assignment-speed\"}",
+          "legendFormat": "5m",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate1h{sloth_id=\"dispatch-assignment-speed\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"dispatch-assignment-speed\"}",
+          "legendFormat": "1h",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate30m{sloth_id=\"dispatch-assignment-speed\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"dispatch-assignment-speed\"}",
+          "legendFormat": "30m",
+          "range": true,
+          "instant": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate6h{sloth_id=\"dispatch-assignment-speed\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"dispatch-assignment-speed\"}",
+          "legendFormat": "6h",
+          "range": true,
+          "instant": false,
+          "refId": "D"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-dispatch-assignment-speed",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-dispatch-assignment-speed.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:×",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 5.6
+              },
+              {
+                "color": "red",
+                "value": 13.44
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 34,
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 18,
+        "y": 42
+      },
+      "type": "timeseries",
+      "title": "Ticket burn rate (2h & 1d > 2.8×, 6h & 3d > 0.93×)",
+      "description": "The slow-burn windows. The ticket alert fires when 2h and 1d are both above 2.8× (10 % of the budget in a day), or 6h and 3d are both above 0.93× (on course to spend the whole budget in about 30 days). Fix within working hours.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate2h{sloth_id=\"dispatch-assignment-speed\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"dispatch-assignment-speed\"}",
+          "legendFormat": "2h",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate1d{sloth_id=\"dispatch-assignment-speed\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"dispatch-assignment-speed\"}",
+          "legendFormat": "1d",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate6h{sloth_id=\"dispatch-assignment-speed\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"dispatch-assignment-speed\"}",
+          "legendFormat": "6h",
+          "range": true,
+          "instant": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:sli_error:ratio_rate3d{sloth_id=\"dispatch-assignment-speed\"} / ignoring (sloth_window) slo:error_budget:ratio{sloth_id=\"dispatch-assignment-speed\"}",
+          "legendFormat": "3d",
+          "range": true,
+          "instant": false,
+          "refId": "D"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-dispatch-assignment-speed",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-dispatch-assignment-speed.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:×",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.93
+              },
+              {
+                "color": "orange",
+                "value": 2.8
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 35,
+      "type": "row",
+      "title": "Rollout gate (tools/rollout-gate)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 49
+      }
+    },
+    {
+      "id": 36,
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 50
+      },
+      "type": "timeseries",
+      "title": "Rollout gate decisions / hour",
+      "description": "Decisions the rollout gate gave Argo Rollouts canary analyses, by outcome and cause. budget: the error budget decided. no_data / prometheus_error: the gate could not read a budget and failed closed (canary blocked); RolloutGateBudgetUnknown opens a ticket.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (allowed, cause) (rate(rollout_gate_decisions_total[$__rate_interval])) * 3600",
+          "legendFormat": "allowed={{allowed}} cause={{cause}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: rollout-gate-budget-unknown",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/rollout-gate-budget-unknown.md",
+          "targetBlank": true
+        },
+        {
+          "title": "Error-budget policy",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/slo/error-budget-policy.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:/h",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 30,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    }
+  ]
+}

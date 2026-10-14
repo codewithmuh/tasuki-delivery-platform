@@ -1,0 +1,35 @@
+{{- $bucket := required "bucket is required (cluster annotation backup_bucket)" .Values.bucket -}}
+{{- $prefix := required "prefix is required" .Values.prefix -}}
+{{- $session := required "session is required (cluster annotation backup_session)" .Values.session -}}
+# Objects land at s3://<bucket>/<prefix>/<session>/<cluster>/{base,wals}/. Restore procedure: deploy/README.md
+# ("Backups and restore").
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}
+    app.kubernetes.io/part-of: tasuki
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
+spec:
+  retentionPolicy: {{ .Values.retentionPolicy | quote }}
+  configuration:
+    destinationPath: {{ printf "s3://%s/%s/%s/" $bucket $prefix $session | quote }}
+    # Credentials from EKS Pod Identity: the cluster's ServiceAccount is bound to an IAM role, no keys anywhere.
+    s3Credentials:
+      inheritFromIAMRole: true
+    # No client-side encryption setting: the bucket encrypts every object with its KMS key by default.
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+  instanceSidecarConfiguration:
+    env:
+      # The bucket is in Tokyo; boto3 needs the region to sign requests (SigV4).
+      - name: AWS_DEFAULT_REGION
+        value: ap-northeast-1
+    # Kyverno requires requests and a memory limit on every container in the Tasuki namespaces, sidecars included.
+    resources:
+      {{- toYaml .Values.sidecar.resources | nindent 6 }}

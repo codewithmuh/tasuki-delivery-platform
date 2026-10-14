@@ -61,7 +61,19 @@ prometheus:
       limits: {memory: 2Gi}
 
 alertmanager:
+  # The chart's base config stays as it is: receiver "null", Watchdog -> null. The real routes and the Slack
+  # receivers are an AlertmanagerConfig (manifests/monitoring/alertmanager-slack.yaml), so a missing webhook
+  # secret drops only them and Alertmanager still starts.
   alertmanagerSpec:
+    # Only AlertmanagerConfigs in monitoring: an app namespace cannot add routes or receivers.
+    alertmanagerConfigSelector: {}
+    alertmanagerConfigNamespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: monitoring
+    # Without this the operator adds namespace="monitoring" to every route of an AlertmanagerConfig in monitoring,
+    # and it would never see a Tasuki alert.
+    alertmanagerConfigMatcherStrategy:
+      type: None
     resources:
       requests: {cpu: 10m, memory: 32Mi}
       limits: {memory: 128Mi}
@@ -76,6 +88,10 @@ grafana:
     dashboards:
       # Dashboards from ConfigMaps labelled grafana_dashboard=1 in any namespace (Strimzi, CloudNativePG, ...).
       searchNamespace: ALL
+      # observability/dashboards/ annotates its ConfigMaps grafana_folder=Tasuki; put them in that folder.
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
   additionalDataSources:
     - name: Loki
       uid: loki

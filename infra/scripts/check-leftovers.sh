@@ -3,8 +3,9 @@
 # and infra-apply.yml run it after `terraform destroy`.
 #
 # It assumes a dedicated AWS account: everything it finds counts, whether Terraform, a Kubernetes
-# controller or a person created it. The state bucket, KMS keys pending deletion and the budget cost
-# nothing or close to it, so they are not checked.
+# controller or a person created it. Not checked, because they are meant to outlive the platform and cost
+# nothing or close to it: the state bucket, the PostgreSQL backup bucket and its KMS key (infra/bootstrap,
+# about $1 a month plus storage), KMS keys pending deletion and the budget.
 set -euo pipefail
 
 # shellcheck source=infra/scripts/common.sh

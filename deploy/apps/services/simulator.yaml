@@ -1,12 +1,16 @@
 # simulator (services/simulator): the city. Merchants, customers and couriers driving the public APIs.
-# Scaled to 0: start a run by setting replicas: 1 (and the scenario) in the environment's values file.
+# Scaled to 0: start a run by setting replicas: 1 in the environment's values file, and pick the scenario there:
+#   env: {SCENARIO: rainy-friday}                 a built-in scenario (small, normal-weekday, rainy-friday)
+#   env: {SCENARIO: /etc/tasuki/my-scenario.yaml} a scenario of your own, from files: (README "Run the simulator")
 image:
   repository: ghcr.io/codewithmuh/tasuki-delivery-platform/simulator
-args: [run, -scenario, small]
+# -scenario defaults to $SCENARIO, so an environment file changes only env.SCENARIO.
+args: [run]
 port: 8080
 replicas: 0
 
 env:
+  SCENARIO: small
   LOG_LEVEL: info
   ORDERS_URL: http://orders
   FLEET_INGEST_URL: http://fleet-ingest

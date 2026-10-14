@@ -42,12 +42,15 @@ sloth_slo_info
 
 **`no_data`:**
 
-1. **Typo in the Rollout's analysis args:** `service` and `slo` must match the Sloth spec (`orders` / `availability`,
-   not `orders-api` / `avail`).
-2. **Rules not loaded:** check that the `PrometheusRule` objects exist and carry the labels Prometheus selects on
-   (kube-prometheus-stack's `ruleSelector`). `sloth_slo_info` lists what is loaded.
-3. **New service with no traffic yet:** the budget series appears only after real traffic. Run the first rollout with
-   the gate metric in Argo Rollouts `dryRun` mode, then remove it.
+1. **Typo in the gate's arguments:** `rollout.gate.service` and `rollout.gate.slo` in
+   `deploy/apps/overlays/prod/values/<service>.yaml` must match the Sloth spec (`orders` / `availability`, not
+   `orders-api` / `avail`). Empty means the release name and every SLO of it.
+2. **Rules not loaded:** Prometheus loads every `PrometheusRule` in the cluster (`ruleSelectorNilUsesHelmValues:
+   false`), so check that they exist: `kubectl -n monitoring get prometheusrules` should list `rules-generated-<service>`,
+   and Argo CD's Application of the same name should be Synced. `sloth_slo_info` lists what Prometheus has loaded.
+3. **New service with no traffic yet:** the budget series appears only after real traffic. Run its rollouts with
+   `rollout.gate.dryRun: true` in its prod values file (dispatch does, today), and turn it off once
+   `rollout-gate check --service <service>` returns a real budget.
 
 **Urgent deploy while the gate is blind:** use the override in the [policy](../slo/error-budget-policy.md#overrides-break-glass)
 and record it. Do not switch the gate to `FAIL_MODE=open` to get one deploy out.

@@ -1,9 +1,9 @@
-# Location path (services/fleet): fleet-ingest, fleet-state and tracking, one Go module.
+# Location path (services/fleet): fleet-ingest, fleet-state, tracking and dispatch, one Go module.
 # Included by the root Makefile, which sets SHELL to bash with -eu -o pipefail. Details:
 # services/fleet/README.md.
 
 FLEET_DIR := services/fleet
-FLEET_SERVICES := fleet-ingest fleet-state tracking
+FLEET_SERVICES := fleet-ingest fleet-state tracking dispatch
 
 .PHONY: fleet-lint fleet-test fleet-build fleet-images
 

@@ -12,6 +12,7 @@ from rest_framework.test import APIClient
 
 from accounts.models import ApiKey, Courier, Merchant, Store
 from core import lifecycle
+from core.database import DatabaseReadiness
 from core.tokens import issue_courier_token
 from tests.helpers import DISPATCH_ETA, SHIBUYA, CourierCtx, Tenant
 
@@ -32,6 +33,15 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 def _reset_lifecycle() -> Iterator[None]:
     yield
     lifecycle.reset()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_database_readiness(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test starts like a new process: /readyz has never seen the database answer."""
+    monkeypatch.setattr(
+        "core.middleware.database_readiness",
+        DatabaseReadiness(grace_s=settings.READINESS_DB_GRACE_SECONDS),
+    )
 
 
 @pytest.fixture(autouse=True)

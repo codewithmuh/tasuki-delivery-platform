@@ -1,9 +1,17 @@
-# Consumer lag on courier.locations (docs/design.md §6, §7.2). `make slo-check` validates and unit-tests this file.
+# Kafka: the brokers themselves, and the consumers whose silence the SLOs cannot see (docs/design.md §6, §7, §10).
+# `make slo-check` validates and unit-tests this file.
 #
-# ASSUMED metric: kafka_consumergroup_lag{consumergroup,topic,partition} from Kafka Exporter (Strimzi ships it).
-# Only fleet-state consumes in a group (KAFKA_GROUP, default `fleet-state`). Tracking reads the topic without a
-# consumer group (every replica needs every point), so Kafka has no lag to report for it: TrackingFeedStalled in
-# tracking.yaml covers tracking instead. If dev and prod share one Kafka cluster, give them different KAFKA_GROUPs.
+# Each environment runs its own Kafka (Strimzi, Kafka `tasuki`, node pool `dual-role`, pods tasuki-dual-role-<n>) and
+# its own Kafka Exporter, scraped by the PodMonitor `kafka` in that namespace (deploy/apps/base/monitoring.yaml), so
+# every series below carries `namespace`. Every rule selects tasuki-prod and keeps `namespace` in its `by`: dev's
+# lag is never added to prod's, and the routing sees which environment an alert is about.
+#
+# Metrics:
+#   kafka_consumergroup_lag{consumergroup,topic,partition}, kafka_consumergroup_current_offset{...} and
+#   kafka_topic_partition_under_replicated_partition{topic,partition}: Kafka Exporter (Strimzi `kafkaExporter`;
+#   names from github.com/danielqsj/kafka_exporter). The exporter needs a reachable broker: with Kafka down, its
+#   series disappear, so KafkaUnavailable counts ready broker pods instead.
+#   kube_pod_status_ready, kube_pod_info: kube-state-metrics (kube-prometheus-stack).
 groups:
   - name: tasuki-kafka
     rules:
@@ -12,8 +20,8 @@ groups:
       # freshness SLO goes quiet instead of burning. Lag is the only signal left.
       - alert: KafkaConsumerLagHigh
         expr: |
-          sum by (consumergroup, topic) (
-            kafka_consumergroup_lag{topic="courier.locations", consumergroup="fleet-state"}
+          sum by (namespace, consumergroup, topic) (
+            kafka_consumergroup_lag{namespace="tasuki-prod", topic="courier.locations", consumergroup="fleet-state"}
           ) > 7500
         for: 5m
         labels:
@@ -24,3 +32,86 @@ groups:
           summary: "{{ $labels.consumergroup }} is {{ $value | humanize }} messages behind (about 10 s of peak traffic is the limit)."
           description: "Courier positions in Redis are getting stale, so dispatch matches on old positions."
           runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/kafka-consumer-lag.md"
+
+      # A consumer group that has stopped: messages wait on a partition and the group has committed nothing there
+      # for 5 minutes (or since the exporter started, if that is more recent), and that has lasted `for`. A healthy
+      # consumer commits within seconds of a message arriving, so this holds at any traffic level, where a lag
+      # threshold in messages would have to be tuned to the topic's volume.
+      # dispatch (orders.events) pages for the same reason as KafkaConsumerLagHigh: the dispatch SLI observes an
+      # order only when dispatching ends, so orders stuck before dispatch sees them burn nothing.
+      - alert: KafkaConsumerStalled
+        expr: |
+          count by (namespace, consumergroup, topic) (
+            kafka_consumergroup_lag{namespace="tasuki-prod", consumergroup="dispatch", topic="orders.events"} > 0
+            and on (namespace, consumergroup, topic, partition)
+            changes(kafka_consumergroup_current_offset{namespace="tasuki-prod", consumergroup="dispatch", topic="orders.events"}[5m]) == 0
+          )
+        for: 2m
+        labels:
+          severity: page
+          category: backlog
+        annotations:
+          title: "{{ $labels.consumergroup }} has stopped consuming {{ $labels.topic }}"
+          summary: "{{ $value }} partition(s) of {{ $labels.topic }} have messages waiting and no commit from {{ $labels.consumergroup }} for 5 minutes."
+          description: "Confirmed orders on those partitions never reach a dispatch matcher, so no courier is offered them."
+          runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/kafka-consumer-lag.md"
+
+      # orders (orders-dispatch-consumer) on dispatch.events: order statuses (assigned, picked up, delivered) stop
+      # moving in the orders API. Nothing is lost (the events wait in Kafka for 7 days), so a ticket.
+      - alert: KafkaConsumerStalled
+        expr: |
+          count by (namespace, consumergroup, topic) (
+            kafka_consumergroup_lag{namespace="tasuki-prod", consumergroup="orders", topic="dispatch.events"} > 0
+            and on (namespace, consumergroup, topic, partition)
+            changes(kafka_consumergroup_current_offset{namespace="tasuki-prod", consumergroup="orders", topic="dispatch.events"}[5m]) == 0
+          )
+        for: 10m
+        labels:
+          severity: ticket
+          category: backlog
+        annotations:
+          title: "{{ $labels.consumergroup }} has stopped consuming {{ $labels.topic }}"
+          summary: "{{ $value }} partition(s) of {{ $labels.topic }} have messages waiting and no commit from {{ $labels.consumergroup }} for 5 minutes."
+          description: "Order statuses in the orders API stop following dispatch (assigned, picked up, delivered). Nothing is lost."
+          runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/kafka-consumer-lag.md"
+
+      # Writes need min.insync.replicas = 2 in-sync copies in prod (deploy/apps/overlays/prod), and the KRaft quorum
+      # needs 2 of the 3 dual-role nodes. With fewer than 2 brokers ready, producers (the outbox relay, fleet-ingest,
+      # dispatch) are refused or time out. One broker away is tolerated by design and does not fire.
+      # Counted from pod readiness, not from the exporter, which loses its series when the brokers are gone.
+      # `or 0 * kube_pod_info` counts a Pending broker (no Ready condition yet) as not ready instead of ignoring it.
+      # 2 minutes: a single broker restart (about a minute, GD-05) never drops prod below two.
+      - alert: KafkaUnavailable
+        expr: |
+          sum by (namespace) (
+            kube_pod_status_ready{namespace="tasuki-prod", pod=~"tasuki-dual-role-[0-9]+", condition="true"}
+            or
+            0 * kube_pod_info{namespace="tasuki-prod", pod=~"tasuki-dual-role-[0-9]+"}
+          ) < 2
+        for: 2m
+        labels:
+          severity: page
+          category: availability
+        annotations:
+          title: "Kafka in {{ $labels.namespace }} cannot take writes"
+          summary: "Only {{ $value }} Kafka broker(s) ready; writes need 2 in-sync replicas."
+          description: "Orders are still accepted (the outbox waits in PostgreSQL), but fleet-ingest sheds GPS points, tracking freezes and dispatch sees no new orders."
+          runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/kafka-unavailable.md"
+
+      # One broker away (a node or AZ lost, a Pending pod whose EBS volume is in another zone): writes still
+      # succeed with 2 copies, but the next failure stops them. A Strimzi rolling restart under-replicates for a
+      # minute or two per broker; 15 minutes means the broker is not coming back by itself.
+      - alert: KafkaUnderReplicated
+        expr: |
+          sum by (namespace) (
+            kafka_topic_partition_under_replicated_partition{namespace="tasuki-prod"}
+          ) > 0
+        for: 15m
+        labels:
+          severity: ticket
+          category: redundancy
+        annotations:
+          title: "Kafka in {{ $labels.namespace }} is running without a full set of replicas"
+          summary: "{{ $value }} partition(s) under-replicated for 15 minutes."
+          description: "Writes still succeed, but one more broker loss stops them. Find the missing broker and bring it back."
+          runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/kafka-unavailable.md"

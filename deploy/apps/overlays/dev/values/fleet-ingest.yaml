@@ -1,0 +1,7 @@
+# Same autoscaling as prod, from one replica, so a dev surge (game day GD-02) exercises the HPA and Karpenter
+# before prod does. Dev stays on plain Deployments: no canary, no gate (dev has no SLOs).
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 70

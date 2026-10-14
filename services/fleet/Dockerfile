@@ -2,7 +2,7 @@
 
 # One Dockerfile for every binary in this module:
 #   docker build --build-arg SERVICE=fleet-ingest -t fleet-ingest .
-# SERVICE is one of the directories under cmd/ (fleet-ingest, fleet-state, tracking).
+# SERVICE is one of the directories under cmd/ (fleet-ingest, fleet-state, tracking, dispatch).
 
 # ---- build: static binary, no cgo, cross-compiled on the build machine's own architecture ----
 FROM --platform=$BUILDPLATFORM golang:1.27-trixie AS build

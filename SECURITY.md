@@ -22,16 +22,21 @@ Only the latest release receives security fixes.
 | Control | Where |
 |---|---|
 | Secret scanning on every commit and pull request | `.pre-commit-config.yaml`, `ci.yml` (gitleaks) |
-| Dependency and base-image updates every week | `.github/dependabot.yml` |
-| Vulnerability and misconfiguration scans (repo + images) | `ci.yml` (Trivy) |
+| Dependency and base-image updates every week | `.github/dependabot.yml`; Helm charts in `deploy/` via `renovate.json` |
+| Vulnerability and misconfiguration scans (repo, every image, rendered manifests, Terraform) | `ci.yml` and each area's workflow (Trivy, checkov) |
 | GitHub Actions pinned to commit SHAs, least-privilege tokens | `.github/workflows/*` |
-| Containers run as non-root, read-only, all capabilities dropped | `Dockerfile`s, `compose.yaml` |
-| Signed images (cosign, keyless) with SBOM and provenance | `release.yml` |
+| No AWS keys in CI: OIDC, a read-only plan role, an apply role gated by a reviewer | `infra/bootstrap/github-oidc.tf` |
+| Containers run as non-root, read-only, all capabilities dropped | `Dockerfile`s, `compose.yaml`, `deploy/charts/service`, Kyverno policies |
+| Signed multi-arch images (cosign, keyless) with SBOM and provenance | `release.yml` |
+| Personal data encrypted per field, never in events or logs | `services/orders` |
 
-Verify a published image:
+The STRIDE review and the accepted risks are in [docs/threat-model.md](docs/threat-model.md).
+
+Verify a published image (every service: `orders`, `fleet-ingest`, `fleet-state`, `tracking`, `dispatch`,
+`routing`, `simulator`, `console`, `rollout-gate`):
 
 ```bash
-cosign verify ghcr.io/codewithmuh/tasuki-delivery-platform/api-go:<version> \
-  --certificate-identity-regexp 'https://github.com/codewithmuh/tasuki-delivery-platform/' \
+cosign verify ghcr.io/codewithmuh/tasuki-delivery-platform/orders:<version> \
+  --certificate-identity https://github.com/codewithmuh/tasuki-delivery-platform/.github/workflows/release.yml@refs/heads/main \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```

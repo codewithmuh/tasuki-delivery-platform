@@ -109,3 +109,50 @@ spec:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities: {drop: [ALL]}
+---
+# A prod canary: the same pod template as a Deployment, under kind Rollout.
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: good-rollout
+  namespace: tasuki-prod
+spec:
+  selector:
+    matchLabels: {app: good-rollout}
+  strategy:
+    canary:
+      steps:
+        - setWeight: 25
+  template:
+    metadata:
+      labels: {app: good-rollout}
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/codewithmuh/tasuki-delivery-platform/orders:0.1.0
+          livenessProbe:
+            httpGet: {path: /healthz, port: 8000}
+          readinessProbe:
+            httpGet: {path: /readyz, port: 8000}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: bad-rollout-no-readiness
+  namespace: tasuki-prod
+spec:
+  selector:
+    matchLabels: {app: bad-rollout}
+  strategy:
+    canary:
+      steps:
+        - setWeight: 25
+  template:
+    metadata:
+      labels: {app: bad-rollout}
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/codewithmuh/tasuki-delivery-platform/orders:0.1.0
+          livenessProbe:
+            httpGet: {path: /healthz, port: 8000}

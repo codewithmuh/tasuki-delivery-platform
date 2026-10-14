@@ -98,7 +98,7 @@ whose first step runs it. The live copies belong in `deploy/`. To roll it out sa
 ## Development
 
 ```bash
-make gate-lint    # gofmt, go vet, golangci-lint (same config as services/api-go)
+make gate-lint    # gofmt, go vet, golangci-lint (same config as the other Go modules)
 make gate-test    # go test -race -cover ./...
 docker buildx build --platform linux/amd64,linux/arm64 -t rollout-gate:dev tools/rollout-gate
 ```

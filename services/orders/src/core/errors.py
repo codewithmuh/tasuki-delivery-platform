@@ -53,7 +53,10 @@ def exception_handler(exc: Exception, context: dict[str, Any]) -> Response | Non
         return Response(error_body(exc.code, exc.message), status=exc.status)
     response = drf_exception_handler(exc, context)
     if response is None:
-        return None  # not an API error: Django logs it and answers with handler500
+        # Not an API error. A database outage becomes a 503 in
+        # core.middleware.DatabaseUnavailableMiddleware; Django logs anything else and answers
+        # with handler500.
+        return None
     if isinstance(exc, exceptions.ValidationError):
         response.data = error_body(
             "validation_error", "The request body is invalid.", details=response.data
@@ -83,3 +86,17 @@ def server_error(request: HttpRequest) -> JsonResponse:
     return JsonResponse(
         error_body("internal_error", "Something went wrong on our side."), status=500
     )
+
+
+def database_unavailable(retry_after_s: int) -> JsonResponse:
+    """503 + Retry-After: PostgreSQL is failing over, restarting or overloaded (core.database)."""
+    response = JsonResponse(
+        error_body(
+            "database_unavailable",
+            "The database is unavailable for a moment. Retry after Retry-After seconds; "
+            "an order is safe to retry with the same Idempotency-Key.",
+        ),
+        status=503,
+    )
+    response["Retry-After"] = str(retry_after_s)
+    return response

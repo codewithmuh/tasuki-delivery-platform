@@ -21,7 +21,7 @@ moved away. The console map lags. Tracking is not affected directly: it reads Ka
 histogram_quantile(0.99, sum by (le) (rate(fleet_state_freshness_seconds_bucket{namespace="tasuki-prod"}[5m])))
 
 # Is fleet-state behind on Kafka? (KafkaConsumerLagHigh pages when this stays high)
-sum(kafka_consumergroup_lag{consumergroup="fleet-state",topic="courier.locations"})
+sum(kafka_consumergroup_lag{namespace="tasuki-prod",consumergroup="fleet-state",topic="courier.locations"})
 
 # Throttling, per pod
 sum by (pod) (rate(container_cpu_cfs_throttled_periods_total{namespace="tasuki-prod",pod=~"fleet-state-.*"}[5m]))
@@ -37,11 +37,16 @@ kubectl -n tasuki-prod logs deploy/fleet-state --tail=200 | jq -c 'select(.level
 
 ## Mitigate
 
-1. **Recent rollout?** `kubectl argo rollouts undo fleet-state -n tasuki-prod`.
-2. **Consumer lag:** see [kafka-consumer-lag](kafka-consumer-lag.md). Scale out up to 12 replicas, one per partition.
-   More replicas than that sit idle.
-3. **Redis slow or lost:** fleet-state rebuilds Redis by replaying recent locations (design §7.2). Lag spikes during
-   the rebuild and recovers within seconds. If it does not, check Redis memory, evictions and failover.
+1. **Recent release?** fleet-state is a plain Deployment, deployed by Argo CD: roll back in git by pinning the
+   previous `image.tag` in `deploy/apps/overlays/prod/values/fleet-state.yaml` (create the file if it does not
+   exist). `kubectl rollout undo` is reverted by Argo CD's self-heal within seconds. A fleet-ingest release can also slow the path; it is an Argo Rollout
+   (`kubectl argo rollouts get rollout fleet-ingest -n tasuki-prod`, abort during its canary).
+2. **Consumer lag:** see [kafka-consumer-lag](kafka-consumer-lag.md). Add replicas through git (`replicas:` in the
+   same values file), up to 12, one per partition. More replicas than that sit idle.
+3. **Redis slow or lost:** fleet-state rebuilds Redis by replaying the last 5 minutes of locations (design §7.2). Lag
+   spikes during the rebuild and recovers within seconds. If it does not (`FleetCacheUnavailable`), follow
+   [redis-lost](redis-lost.md). Valkey runs with `maxmemory 200mb` and `noeviction`, so a full cache fails writes
+   loudly instead of evicting positions: look for write errors in the fleet-state logs.
 4. **Clock skew over ~0.5 s:** fix NTP on the affected nodes (or drain them). Fixing the SLI is not the answer.
 
 ## Escalate

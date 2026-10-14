@@ -48,6 +48,12 @@ ETA_FALLBACKS = Counter(
 STATUS_TRANSITIONS = Counter(
     "orders_status_transitions_total", "Order status changes, by new status.", ["status"]
 )
+# Also counted in http_requests_total{status="503"}, which is what the availability SLI reads.
+DATABASE_UNAVAILABLE = Counter(
+    "orders_database_unavailable_total",
+    "Requests answered 503 database_unavailable because PostgreSQL could not serve them.",
+    ["route", "reason"],
+)
 
 # Outbox relay (its own process; it serves these on WORKER_METRICS_PORT).
 OUTBOX_LAG = Gauge(

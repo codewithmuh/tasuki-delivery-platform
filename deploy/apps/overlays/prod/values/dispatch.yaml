@@ -1,0 +1,8 @@
+# Canary, gated by the dispatch assignment-speed budget. The gate runs in dry-run until that SLO has data: the
+# dispatch image is new, so its budget series appear only after a session with traffic, and a fail-closed gate
+# would block every release until then (docs/slo/error-budget-policy.md, "The gate when the budget is unknown").
+# Turn dryRun off once `rollout-gate check --service dispatch` returns a real budget.
+rollout:
+  enabled: true
+  gate:
+    dryRun: true

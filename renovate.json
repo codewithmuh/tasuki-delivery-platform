@@ -1,0 +1,36 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Only what Dependabot cannot see: Helm chart versions in Argo CD Applications under deploy/, and the Argo CD chart version in the bootstrap script. Everything else is Dependabot's (.github/dependabot.yml).",
+  "enabledManagers": ["argocd", "custom.regex"],
+  "argocd": {
+    "managerFilePatterns": ["/^deploy/.+\\.ya?ml$/"]
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The Argo CD chart that deploy/bootstrap/bootstrap.sh installs; must equal targetRevision in deploy/platform/argocd.yaml (make deploy-lint checks).",
+      "managerFilePatterns": ["/^deploy/bootstrap/bootstrap\\.sh$/"],
+      "matchStrings": ["ARGOCD_CHART_VERSION=\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "argo-cd",
+      "datasourceTemplate": "helm",
+      "registryUrlTemplate": "https://argoproj.github.io/argo-helm"
+    }
+  ],
+  "schedule": ["before 6am on monday"],
+  "timezone": "Asia/Tokyo",
+  "dependencyDashboard": false,
+  "packageRules": [
+    {
+      "description": "Bootstrap script and Argo CD Application move together, in one PR.",
+      "matchPackageNames": ["argo-cd"],
+      "groupName": "argo-cd chart"
+    },
+    {
+      "description": "One weekly PR for the other charts; majors on their own.",
+      "matchManagers": ["argocd"],
+      "matchPackageNames": ["!argo-cd"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "helm charts (deploy/)"
+    }
+  ]
+}

@@ -1,8 +1,75 @@
 # Tasuki itself, in two environments (namespaces tasuki-dev and tasuki-prod on one cluster; ADR 0016).
 #   Kustomize: deploy/apps/overlays/<env>   what exists once per namespace (namespace, quota, network
 #                                           policies, secrets, Kafka, PostgreSQL, Redis)
-#   Helm:      deploy/charts/service        what exists once per service (Deployment, Service, ...),
+#   Helm:      deploy/charts/service        what exists once per service (Deployment or Rollout, Service, ...),
 #                                           with values from deploy/apps/
+#   Helm:      deploy/charts/postgres-backup  where orders-db archives (ObjectStore), with values from Terraform
+---
+# Where orders-db sends its WAL and base backups: one ObjectStore per environment, in an S3 bucket that survives
+# `make aws-down` (infra/bootstrap/backups.tf). The bucket name and the session prefix are account- and
+# session-specific, so they come from Terraform through the cluster Secret's annotations (the GitOps bridge,
+# bootstrap.sh), which only an ApplicationSet can template. The schedule sits next to the Cluster
+# (deploy/apps/base/postgres.yaml, ScheduledBackup).
+#
+# Wave -1, before the environments (0): the ObjectStore exists before the Cluster's first WAL segment is
+# archived. The namespace may not exist yet, so these Applications create it (the tasuki-<env> Application then
+# applies its labels). No resources-finalizer, like the environments: deleting the Application must never take
+# the backup configuration with it.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: orders-db-backups
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - matrix:
+        generators:
+          - clusters:
+              selector:
+                matchLabels:
+                  tasuki.io/platform: "true"
+          # retention: how far back a restore can go. Dev data is synthetic; prod keeps a month (design.md §10).
+          - list:
+              elements:
+                - env: dev
+                  retention: 7d
+                - env: prod
+                  retention: 30d
+  template:
+    metadata:
+      name: "orders-db-backups-{{ .env }}"
+      labels:
+        tasuki.io/environment: "{{ .env }}"
+    spec:
+      project: tasuki
+      source:
+        repoURL: https://github.com/codewithmuh/tasuki-delivery-platform.git
+        targetRevision: main
+        path: deploy/charts/postgres-backup
+        helm:
+          # The ObjectStore's name; orders-db refers to it (barmanObjectName).
+          releaseName: orders-db-backups
+          valuesObject:
+            bucket: "{{ .metadata.annotations.backup_bucket }}"
+            session: "{{ .metadata.annotations.backup_session }}"
+            prefix: "tasuki-{{ .env }}"
+            retentionPolicy: "{{ .retention }}"
+      destination:
+        name: "{{ .name }}"
+        namespace: "tasuki-{{ .env }}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+        retry:
+          limit: 10
+          backoff: {duration: 10s, factor: 2, maxDuration: 5m}
 ---
 # The environments come first and must be Healthy (Kafka Ready, PostgreSQL primary up, secrets synced)
 # before the services start. No resources-finalizer on purpose: deleting these Applications must never
@@ -62,6 +129,13 @@ spec:
 #   3. deploy/apps/services/<service>.yaml               what the service is (image, port, env, network)
 #   4. deploy/apps/overlays/<env>/values/<service>.yaml  this service in this environment (optional)
 # Adding a service: a values file in deploy/apps/services/ and one line in the list below.
+#
+# Game days: a drill may pause self-heal for one Application without git, e.g.
+#   argocd app set tracking-prod --sync-policy none      ... drill ...
+#   argocd app set tracking-prod --sync-policy automated --self-heal --auto-prune
+# ignoreApplicationDifferences below keeps the ApplicationSet from writing the template's syncPolicy back over
+# that. The cost: a syncPolicy change in this template reaches existing Applications only when they are
+# re-created. deploy/README.md, "Game days".
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -72,6 +146,9 @@ metadata:
 spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=error"]
+  ignoreApplicationDifferences:
+    - jsonPointers:
+        - /spec/syncPolicy
   generators:
     - matrix:
         generators:
@@ -90,6 +167,7 @@ spec:
                 - service: dispatch
                 - service: routing
                 - service: simulator
+                - service: console
   template:
     metadata:
       name: "{{ .service }}-{{ .env }}"

@@ -4,17 +4,40 @@
   "features": {
     "ghcr.io/devcontainers/features/python:1": { "version": "3.13" },
     "ghcr.io/devcontainers/features/go:1": { "version": "1.27", "golangciLintVersion": "2.14.0" },
+    "ghcr.io/devcontainers/features/node:1": { "version": "24" },
+    "ghcr.io/devcontainers/features/terraform:1": { "version": "1.16.5", "tflint": "0.64.0" },
+    "ghcr.io/devcontainers/features/aws-cli:1": {},
+    "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
+      "version": "1.35",
+      "helm": "4.2.4",
+      "minikube": "none"
+    },
     "ghcr.io/devcontainers/features/docker-in-docker:2": {},
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
   "postCreateCommand": "pipx install uv==0.13.0 && pipx install pre-commit && make setup",
-  "forwardPorts": [8000, 8080],
+  "forwardPorts": [8088, 8000, 8081, 8082, 8083, 8084, 8090, 5000],
+  "portsAttributes": {
+    "8088": { "label": "console", "onAutoForward": "openBrowser" },
+    "8000": { "label": "orders" },
+    "8081": { "label": "fleet-ingest" },
+    "8082": { "label": "dispatch" },
+    "8083": { "label": "tracking" },
+    "8084": { "label": "fleet-state" },
+    "8090": { "label": "simulator" },
+    "5000": { "label": "routing (OSRM)" }
+  },
   "customizations": {
     "vscode": {
       "extensions": [
         "charliermarsh.ruff",
         "ms-python.python",
         "golang.go",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "hashicorp.terraform",
+        "redhat.vscode-yaml",
+        "ms-kubernetes-tools.vscode-kubernetes-tools",
         "ms-azuretools.vscode-docker",
         "github.vscode-github-actions",
         "editorconfig.editorconfig"

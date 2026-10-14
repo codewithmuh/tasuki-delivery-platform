@@ -1,0 +1,7 @@
+# CloudNativePG Barman Cloud plugin (cloudnative-pg.github.io/charts "plugin-barman-cloud"), app v0.15.1.
+# The plugin itself only coordinates; the WAL archiving and base backups run in a sidecar it adds to every
+# PostgreSQL pod that names it in spec.plugins. That sidecar is sized by the ObjectStore
+# (instanceSidecarConfiguration, deploy/charts/postgres-backup).
+resources:
+  requests: {cpu: 10m, memory: 64Mi}
+  limits: {memory: 128Mi}

@@ -1,5 +1,5 @@
 env:
   # The Service names other pods use to call orders in this namespace (probes and scrapes by pod IP are exempt).
   DJANGO_ALLOWED_HOSTS: orders,orders.tasuki-dev,orders.tasuki-dev.svc,orders.tasuki-dev.svc.cluster.local
-  # No public host yet: tracking links point at the in-cluster Service, which is what the simulator follows.
-  TRACKING_BASE_URL: http://tracking.tasuki-dev.svc.cluster.local
+  # Customer tracking page (the console). No public host yet: switch to the public URL once an ingress and domain exist.
+  TRACKING_PAGE_URL: http://console.tasuki-dev.svc.cluster.local

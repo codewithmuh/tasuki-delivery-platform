@@ -27,7 +27,7 @@ All APIs are JSON over HTTPS, versioned under `/v1`, and return errors as
 | Service | Method and path | Caller | Purpose |
 |---|---|---|---|
 | orders | `POST /v1/quotes` | merchant | Price and ETA for a delivery; valid 2 minutes |
-| orders | `POST /v1/orders` (`Idempotency-Key` header required) | merchant | Create an order from a quote; returns `tracking_url` |
+| orders | `POST /v1/orders` (`Idempotency-Key` header required) | merchant | Create an order from a quote; returns `tracking_url`, the customer page `<TRACKING_PAGE_URL>/track/<token>` (the page streams from tracking) |
 | orders | `GET /v1/orders/{id}` | merchant | Order with status history |
 | orders | `POST /v1/orders/{id}/cancel` | merchant | Cancel before pickup |
 | orders | `POST /v1/courier/orders/{id}/pickup` | courier | Courier has the order |
@@ -95,12 +95,16 @@ event names they don't know, and reconnect if a stream is silent for 45 s (three
 **Exception to the runtime contract:** OSRM (`routing`) has no `/healthz` or `/readyz`; probes call
 `GET /nearest/v1/bicycle/139.7016,35.6580` (Shibuya) instead.
 
-### Error codes (fleet and tracking)
+### Error codes
 
 | Endpoint | Codes |
 |---|---|
+| orders (every endpoint) | `503 database_unavailable` + `Retry-After` while PostgreSQL is unreachable, failing over or read-only; safe to retry (idempotency keys) |
 | `POST /v1/locations` | `400 invalid_json`, `401 unauthorized` / `invalid_token`, `413 body_too_large`, `422 invalid_batch` / `invalid_points`, `503 overloaded` (+ `Retry-After`) |
 | tracking streams | `400 unknown_ward`, `403 fleet_stream_disabled`, `503 too_many_viewers` |
+| dispatch | `400 invalid_query` / `unknown_ward`, `401 unauthorized` / `invalid_token`, `404 offer_not_found`, `409 offer_not_yours` / `offer_expired` / `offer_closed` / `courier_busy`, `503 too_many_streams` / `unavailable` |
+
+`offer_cancelled.reason` is one of `order_cancelled`, `order_closed`, `expired`.
 
 ### Authentication (P1)
 

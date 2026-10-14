@@ -21,7 +21,30 @@ const (
 	GeoAvailableKey  = "geo:couriers:available" // idle couriers seen in the last SEEN_WINDOW
 	LastSeenKey      = "couriers:last_seen"     // sorted set: courier ID -> received_at (unix ms)
 	RebuiltKey       = "fleet:state:rebuilt_at" // RFC 3339 time of the last completed rebuild
+
+	// RebuildingKeyPrefix + token marks one rebuild in flight. Losing Redis deletes it, which is how a
+	// rebuild finds out that the data it replayed before the loss is gone.
+	RebuildingKeyPrefix = "fleet:state:rebuilding:"
 )
+
+// ErrFlushedDuringRebuild means Redis lost its data while a rebuild was replaying, so the rebuild
+// must start again instead of marking a half-empty Redis as rebuilt.
+var ErrFlushedDuringRebuild = errors.New("redis lost its data during the rebuild")
+
+// markRebuiltScript publishes the rebuild marker only if this rebuild's in-flight key survived,
+// and never moves the marker backwards (two replicas may rebuild at once and finish out of order).
+// RFC 3339 times in UTC with whole seconds compare correctly as strings.
+var markRebuiltScript = redis.NewScript(`
+if redis.call('EXISTS', KEYS[1]) == 0 then
+  return 0
+end
+redis.call('DEL', KEYS[1])
+local current = redis.call('GET', KEYS[2])
+if not current or ARGV[1] > current then
+  redis.call('SET', KEYS[2], ARGV[1])
+end
+return 1
+`)
 
 // upsertScript applies one point only if it is newer (by device_time) than the stored one, so a
 // late or duplicated Kafka message can never move a courier backwards. Doing the comparison and
@@ -179,10 +202,25 @@ func (s *Store) Sweep(ctx context.Context, cutoff time.Time) (int, error) {
 	}
 }
 
-// MarkRebuilt records that Redis now holds everything the replay window covers.
-func (s *Store) MarkRebuilt(ctx context.Context, at time.Time) error {
-	if err := s.rdb.Set(ctx, RebuiltKey, at.UTC().Format(time.RFC3339), 0).Err(); err != nil {
+// BeginRebuild records that the rebuild identified by token has started. The key expires so a
+// rebuild that crashed halfway leaves nothing behind.
+func (s *Store) BeginRebuild(ctx context.Context, token string) error {
+	if err := s.rdb.Set(ctx, RebuildingKeyPrefix+token, "1", time.Hour).Err(); err != nil {
+		return fmt.Errorf("begin rebuild: %w", err)
+	}
+	return nil
+}
+
+// MarkRebuilt records that Redis now holds everything the replay window covers, as of at (when the
+// rebuild started). It returns ErrFlushedDuringRebuild if Redis lost its data since BeginRebuild.
+func (s *Store) MarkRebuilt(ctx context.Context, token string, at time.Time) error {
+	keys := []string{RebuildingKeyPrefix + token, RebuiltKey}
+	ok, err := markRebuiltScript.Run(ctx, s.rdb, keys, at.UTC().Format(time.RFC3339)).Int()
+	if err != nil {
 		return fmt.Errorf("mark rebuilt: %w", err)
+	}
+	if ok == 0 {
+		return ErrFlushedDuringRebuild
 	}
 	return nil
 }

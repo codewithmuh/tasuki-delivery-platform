@@ -51,7 +51,7 @@ def test_create_order(tenant: Tenant) -> None:
 def test_tracking_url_is_a_signed_link_for_this_order(tenant: Tenant) -> None:
     body = order(tenant)
     base, token = body["tracking_url"].rsplit("/", 1)
-    assert base == f"{settings.TRACKING_BASE_URL}/v1/track"
+    assert base == f"{settings.TRACKING_PAGE_URL}/track"
     claims = jwt.decode(token, settings.TRACKING_TOKEN_SECRET, algorithms=["HS256"])
     assert claims["sub"] == body["order_id"]
     assert claims["role"] == "tracking"

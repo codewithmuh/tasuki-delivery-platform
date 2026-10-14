@@ -86,6 +86,40 @@ func TestRainyFridayTriplesDemandFromHalfPastEleven(t *testing.T) {
 	}
 }
 
+func TestDesignScaleScenarioMatchesTheDesign(t *testing.T) {
+	s := builtin(t, "rainy-friday-design-scale")
+	curve, err := s.Curve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// docs/design.md §4: 50,000 orders a day, 6,000 in the busiest hour, ×3 in the rain ≈ 5/s.
+	if day := curve.Expected(0, 24*time.Hour); day < 48_000 || day > 55_000 {
+		t.Errorf("expected %.0f orders a day before weather, want about 50,000", day)
+	}
+	if peak := curve.Expected(12*time.Hour, 13*time.Hour); peak != 6000 {
+		t.Errorf("12:00–13:00 expects %.0f orders, want 6,000", peak)
+	}
+	noon := 12 * time.Hour
+	if perSecond := curve.Rate(noon) * s.WeatherEvents().DemandMultiplier(noon) / 3600; perSecond != 5 {
+		t.Errorf("rainy lunch peak = %.2f orders/s, want 5", perSecond)
+	}
+	// About 3,000 couriers online at the lunch peak (before 10 % log off in the rain).
+	var onShare, total float64
+	for _, sh := range s.Couriers.Shifts {
+		total += sh.Share
+		if sh.Start.Duration() <= noon && noon < sh.End.Duration() {
+			onShare += sh.Share
+		}
+	}
+	if online := float64(s.Couriers.Count) * onShare / total; online < 2800 || online > 3200 {
+		t.Errorf("%.0f couriers online at 12:00, want about 3,000", online)
+	}
+	// GPS at the design's ~750 points/s: 3,000 couriers reporting every 4 s.
+	if s.GPS.MovingInterval != 4*time.Second {
+		t.Errorf("moving GPS interval = %v, want 4s", s.GPS.MovingInterval)
+	}
+}
+
 func TestSmallScenarioIsLaptopSized(t *testing.T) {
 	s := builtin(t, "small")
 	if s.Couriers.Count != 50 || len(s.Wards) != 2 {

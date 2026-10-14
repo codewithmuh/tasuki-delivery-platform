@@ -38,6 +38,9 @@ cluster_endpoint="$(tf_output cluster_endpoint)"
 region="$(tf_output region)"
 vpc_id="$(tf_output vpc_id)"
 karpenter_queue_name="$(tf_output karpenter_queue_name)"
+# PostgreSQL backups: the bucket (infra/bootstrap, outlives the platform) and this platform's session prefix.
+backup_bucket="$(tf_output backup_bucket)"
+backup_session="$(tf_output backup_session)"
 account_id="$(jq -r '.account_id.value // empty' <<<"$outputs")"
 if [[ -z "$account_id" ]]; then
   command -v aws >/dev/null 2>&1 || die "terraform output 'account_id' is missing and the aws CLI is not installed"
@@ -50,6 +53,8 @@ fi
 [[ "$vpc_id" =~ ^vpc-[0-9a-f]{8,17}$ ]] || die "unexpected vpc_id: $vpc_id"
 [[ "$account_id" =~ ^[0-9]{12}$ ]] || die "unexpected account_id: $account_id"
 [[ "$karpenter_queue_name" =~ ^[A-Za-z0-9_-]{1,80}$ ]] || die "unexpected karpenter_queue_name: $karpenter_queue_name"
+[[ "$backup_bucket" =~ ^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$ ]] || die "unexpected backup_bucket: $backup_bucket"
+[[ "$backup_session" =~ ^[0-9]{8}T[0-9]{4}Z$ ]] || die "unexpected backup_session: $backup_session"
 
 # Refuse to install into whatever cluster the current context happens to point at.
 current_server="$(kubectl config view --minify --output 'jsonpath={.clusters[0].cluster.server}')"
@@ -70,8 +75,8 @@ helm upgrade --install argocd argo-cd \
   --wait --timeout 10m
 
 # --- 3. The GitOps bridge: register this cluster, with Terraform's values as annotations ----------
-# ApplicationSets with a cluster generator (Karpenter, AWS Load Balancer Controller) select clusters
-# labelled tasuki.io/platform=true and template these annotations into Helm values.
+# ApplicationSets with a cluster generator (Karpenter, AWS Load Balancer Controller, orders-db backups) select
+# clusters labelled tasuki.io/platform=true and template these annotations into Helm values.
 echo "Registering the cluster with Argo CD"
 kubectl apply --filename - <<EOF
 apiVersion: v1
@@ -88,6 +93,8 @@ metadata:
     vpc_id: "${vpc_id}"
     aws_account_id: "${account_id}"
     karpenter_queue_name: "${karpenter_queue_name}"
+    backup_bucket: "${backup_bucket}"
+    backup_session: "${backup_session}"
 type: Opaque
 stringData:
   name: in-cluster

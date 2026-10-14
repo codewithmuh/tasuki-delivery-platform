@@ -1,0 +1,13 @@
+# Same autoscaling as prod (overlays/prod/values/tracking.yaml says why), from one replica.
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 60
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 600
+env:
+  # Until there is an ingress and a domain, the console is reached with port-forwards
+  # (deploy/README.md, "Console"), so the browser's origin is localhost:8088 and tracking is on another origin.
+  TRACKING_CORS_ORIGINS: http://localhost:8088

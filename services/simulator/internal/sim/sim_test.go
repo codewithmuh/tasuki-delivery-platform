@@ -62,10 +62,14 @@ func testConfig(t *testing.T, f *fakeTasuki) Config {
 	}
 }
 
+// testClient does not keep connections alive, so it never leaves a spare connection that
+// would make the server's graceful shutdown wait.
+var testClient = &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+
 func get(t *testing.T, url string) (int, string) {
 	t.Helper()
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testClient.Do(req)
 	if err != nil {
 		return 0, err.Error()
 	}
@@ -465,7 +469,7 @@ func TestServerAndProbe(t *testing.T) {
 	if err := Probe(context.Background(), base+"/readyz"); err != nil {
 		t.Errorf("readyz after setReady: %v", err)
 	}
-	if err := srv.shutdown(time.Second); err != nil {
+	if err := srv.shutdown(3 * time.Second); err != nil {
 		t.Fatal(err)
 	}
 	if err := Probe(context.Background(), "://bad"); err == nil {

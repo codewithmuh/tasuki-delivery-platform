@@ -30,16 +30,22 @@ sum by (pod) (rate(container_cpu_cfs_throttled_periods_total{namespace="tasuki-p
 ```
 
 ```bash
-kubectl -n tasuki-prod top pods -l app.kubernetes.io/name=tracking
-kubectl -n tasuki-prod logs deploy/tracking --tail=300 | jq -c 'select(.msg | test("drop|slow"; "i"))'
+kubectl -n tasuki-prod top pods -l app.kubernetes.io/name=tracking,app.kubernetes.io/component=server
+kubectl -n tasuki-prod get hpa tracking
+# Drops are counted, not logged. The access log shows who streams what (route pattern only, never the token);
+# a stream's line is written when it ends, with its duration
+kubectl -n tasuki-prod logs -l app.kubernetes.io/name=tracking,app.kubernetes.io/component=server --tail=500 \
+  | jq -c 'select(.route == "GET /v1/fleet/stream")'
 ```
 
 ## Mitigate
 
-1. **All pods dropping, CPU high:** scale tracking out, or turn on brownout (10 s updates, design §10) during a surge.
+1. **All pods dropping, CPU high:** the HPA (2–6 replicas) should be scaling tracking out; if it is at its maximum,
+   or during a surge, follow [surge-brownout](surge-brownout.md) (raise `maxReplicas`, or the 10 s brownout).
 2. **One pod dropping:** delete it. Its viewers reconnect to the others.
 3. **A few heavy clients:** an ops console streaming every ward (`/v1/fleet/stream` with no `ward`) receives the whole
-   fleet. Check the access logs for that route and ask the dispatcher to filter by ward.
+   fleet. `tracking_sse_connections{stream="fleet"}` per pod shows how many are open (the access log records the
+   route, not the `ward` filter); ask the dispatchers to filter by ward.
 
 ## Escalate
 

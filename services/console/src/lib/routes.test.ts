@@ -11,7 +11,7 @@ describe('parseRoute', () => {
   });
 
   it('routes /track/:token to the tracking page', () => {
-    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJvcmRfMSJ9.c2lnbmF0dXJl-_';
+    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJvcmRfMSJ9.c2lnbmF0dXJl-_'; // gitleaks:allow (test fixture)
     expect(parseRoute(`/track/${jwt}`, '', wards)).toEqual({ page: 'track', token: jwt });
     expect(parseRoute('/track/demo/', '', wards)).toEqual({ page: 'track', token: 'demo' });
   });

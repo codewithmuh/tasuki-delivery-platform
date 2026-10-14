@@ -37,6 +37,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: 'Error codes: not_authenticated, authentication_failed.'
+        '503':
+          description: 'Error codes: database_unavailable. The database is failing
+            over or restarting: retry after Retry-After seconds. Order creation is
+            safe to retry with the same Idempotency-Key.'
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/admin/couriers/{courier_id}/token:
     post:
       operationId: admin_issue_courier_token
@@ -70,6 +83,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: 'Error codes: not_found.'
+        '503':
+          description: 'Error codes: database_unavailable. The database is failing
+            over or restarting: retry after Retry-After seconds. Order creation is
+            safe to retry with the same Idempotency-Key.'
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/admin/merchants:
     post:
       operationId: admin_create_merchant
@@ -102,6 +128,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: 'Error codes: not_authenticated, authentication_failed.'
+        '503':
+          description: 'Error codes: database_unavailable. The database is failing
+            over or restarting: retry after Retry-After seconds. Order creation is
+            safe to retry with the same Idempotency-Key.'
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/courier/orders/{order_id}/deliver:
     post:
       operationId: courier_deliver
@@ -160,6 +199,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: 'Error codes: proof_too_far.'
+        '503':
+          description: 'Error codes: database_unavailable. The database is failing
+            over or restarting: retry after Retry-After seconds. Order creation is
+            safe to retry with the same Idempotency-Key.'
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/courier/orders/{order_id}/fail:
     post:
       operationId: courier_fail
@@ -204,6 +256,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: 'Error codes: illegal_transition.'
+        '503':
+          description: 'Error codes: database_unavailable. The database is failing
+            over or restarting: retry after Retry-After seconds. Order creation is
+            safe to retry with the same Idempotency-Key.'
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/courier/orders/{order_id}/pickup:
     post:
       operationId: courier_pickup
@@ -244,6 +309,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: 'Error codes: illegal_transition.'
+        '503':
+          description: 'Error codes: database_unavailable. The database is failing
+            over or restarting: retry after Retry-After seconds. Order creation is
+            safe to retry with the same Idempotency-Key.'
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/orders:
     post:
       operationId: create_order
@@ -304,6 +382,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: 'Error codes: idempotency_key_reused, dropoff_mismatch.'
+        '503':
+          description: 'Error codes: database_unavailable. The database is failing
+            over or restarting: retry after Retry-After seconds. Order creation is
+            safe to retry with the same Idempotency-Key.'
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/orders/{order_id}:
     get:
       operationId: get_order
@@ -337,6 +428,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: 'Error codes: not_found.'
+        '503':
+          description: 'Error codes: database_unavailable. The database is failing
+            over or restarting: retry after Retry-After seconds. Order creation is
+            safe to retry with the same Idempotency-Key.'
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/orders/{order_id}/cancel:
     post:
       operationId: cancel_order
@@ -388,6 +492,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: 'Error codes: illegal_transition.'
+        '503':
+          description: 'Error codes: database_unavailable. The database is failing
+            over or restarting: retry after Retry-After seconds. Order creation is
+            safe to retry with the same Idempotency-Key.'
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/quotes:
     post:
       operationId: create_quote
@@ -427,6 +544,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: 'Error codes: store_not_found.'
+        '503':
+          description: 'Error codes: database_unavailable. The database is failing
+            over or restarting: retry after Retry-After seconds. Order creation is
+            safe to retry with the same Idempotency-Key.'
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 components:
   schemas:
     CancelReasonEnum:

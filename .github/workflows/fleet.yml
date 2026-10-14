@@ -54,7 +54,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [fleet-ingest, fleet-state, tracking]
+        service: [fleet-ingest, fleet-state, tracking, dispatch]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -101,7 +101,7 @@ jobs:
           secret="$(openssl rand -hex 32)"
           docker run --detach --name smoke --read-only --tmpfs /tmp --cap-drop ALL \
             --env KAFKA_BROKERS=127.0.0.1:1 --env REDIS_URL=redis://127.0.0.1:1/0 \
-            --env COURIER_TOKEN_SECRET="${secret}" --env TRACKING_TOKEN_SECRET="${secret}" \
+            --env COURIER_TOKEN_SECRET="${secret}" --env TRACKING_TOKEN_SECRET="${secret}" --env ROUTING_URL=none \
             --publish 127.0.0.1:9000:8080 "${IMAGE}"
           for _ in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:9000/healthz; then break; fi
@@ -140,6 +140,14 @@ jobs:
               # Not ready: the order replay cannot finish. The ops stream is off by default.
               test "$(status http://127.0.0.1:9000/readyz)" = 503
               test "$(status http://127.0.0.1:9000/v1/fleet/stream)" = 403
+              ;;
+            dispatch)
+              # Not ready without Redis. Courier endpoints still authenticate first; an ETA needs
+              # Redis, so it answers 503 quickly and orders falls back to its own estimate.
+              test "$(status http://127.0.0.1:9000/readyz)" = 503
+              test "$(status http://127.0.0.1:9000/v1/couriers/me/offers/stream)" = 401
+              test "$(status --request POST http://127.0.0.1:9000/v1/offers/off_01JABCDEFGHJKMNPQRSTVWXYZ0/accept)" = 401
+              test "$(status 'http://127.0.0.1:9000/v1/eta?store_lat=35.658&store_lng=139.7016&dropoff_lat=35.645&dropoff_lng=139.71')" = 503
               ;;
           esac
 

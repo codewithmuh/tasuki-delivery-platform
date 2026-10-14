@@ -2,3 +2,19 @@
 resources:
   requests: {cpu: 100m, memory: 256Mi}
   limits: {memory: 512Mi}
+# Canary, gated by the tracking freshness budget.
+rollout:
+  enabled: true
+# Scale on CPU: fan-out to viewers is most of the work. Two replicas carry the design's 10,000 viewers; six leave
+# room for a rain surge (design.md §10). The target is lower than fleet-ingest's because a new replica replays
+# orders.events and dispatch.events before it is ready (tens of seconds), so it has to start earlier. Scale-down
+# waits 10 minutes: removing a replica drops its SSE connections, and every viewer reconnects at once.
+# A connected-viewers metric per pod would be the better signal (P2).
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 60
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 600

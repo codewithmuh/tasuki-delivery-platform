@@ -26,26 +26,48 @@ slo:period_error_budget_remaining:ratio{sloth_id="orders-availability"}
 # Which route and status code
 sum by (route, status) (rate(http_requests_total{namespace="tasuki-prod",service="orders",method="POST",route=~"/v1/quotes|/v1/orders",status=~"5.."}[5m]))
 
+# 503 database_unavailable: PostgreSQL could not serve the request, and why
+#   connection / shutdown: failover or restart · read_only: connected to a standby · too_many_connections
+#   timeout: a statement ran past DB_STATEMENT_TIMEOUT_MS (slow queries or lock waits, not a failover)
+sum by (route, reason) (rate(orders_database_unavailable_total{namespace="tasuki-prod"}[5m]))
+
 # One bad pod or all of them
 sum by (pod) (rate(http_requests_total{namespace="tasuki-prod",service="orders",status=~"5.."}[5m]))
 ```
 
 ```bash
 kubectl argo rollouts get rollout orders -n tasuki-prod          # a canary in progress or a recent rollout?
-kubectl -n tasuki-prod get pods -l app.kubernetes.io/name=orders
-kubectl -n tasuki-prod logs deploy/orders --tail=500 | jq -c 'select(.status >= 500)'   # JSON logs, with request_id
+kubectl -n tasuki-prod get pods -l app.kubernetes.io/name=orders,app.kubernetes.io/component=server
+# orders is an Argo Rollout in prod, so select its pods by label (kubectl logs deploy/... only works in dev)
+kubectl -n tasuki-prod logs -l app.kubernetes.io/name=orders,app.kubernetes.io/component=server --tail=300 \
+  | jq -c 'select(.status >= 500)'                                # JSON access logs, with request_id
+kubectl cnpg status orders-db -n tasuki-prod                     # the database: primary, standby, replication
 ```
 
 ## Mitigate
 
-1. **Recent rollout?** Roll back first, investigate second: `kubectl argo rollouts abort orders -n tasuki-prod` during a
-   canary, `kubectl argo rollouts undo orders -n tasuki-prod` after one. Rollbacks skip the canary steps and the gate.
+1. **Recent rollout?** Roll back first, investigate second. During a canary: `kubectl argo rollouts abort orders -n
+   tasuki-prod` (it only touches the Rollout's status, so Argo CD leaves it alone). After a completed rollout: pin the
+   previous `image.tag` in `deploy/apps/overlays/prod/values/orders.yaml` and merge. Argo CD syncs it, and the
+   Rollout's `rollbackWindow` skips the canary steps and the gate. Do not use `kubectl argo rollouts undo`: it
+   changes the Rollout's spec, and Argo CD's self-heal puts the bad version back within seconds.
 2. **Only quotes fail?** Quotes call dispatch `GET /v1/eta`; when it does not answer in time, orders should fall back
    to its local estimate, not fail. See [eta-fallback](eta-fallback.md).
-3. **503s for 1–2 minutes?** A PostgreSQL failover does that by design (design §10). If it lasts longer, check the RDS
-   events and the database connection errors in the logs.
-4. **Overloaded?** Check CPU throttling and the HPA (`kubectl -n tasuki-prod get hpa`), scale out, and look for one tenant
-   sending far more than the rest (rate limits are per tenant).
+3. **503 `database_unavailable`?** The database is failing over, restarting or overloaded, and clients get
+   `Retry-After: 2`. A failover should end within 1–2 minutes (design §10). Check `kubectl cnpg status orders-db -n
+   tasuki-prod` and the reasons above: `connection`/`shutdown` for longer than that, or `OrdersDatabaseUnavailable`
+   firing, means follow [postgres-failover](postgres-failover.md). `timeout` or `too_many_connections` with a healthy
+   cluster is load or a slow query; see [slo-orders-latency](slo-orders-latency.md). `read_only` that does not stop
+   means pods are still connected to a demoted primary; restarting the orders pods reconnects them through
+   `orders-db-rw`.
+4. **Errors stopped, but so did the traffic?** After 120 s of failing database checks (`READINESS_DB_GRACE_SECONDS`)
+   every orders pod turns unready. Requests then fail at the connection and never reach Django, so this SLI goes
+   quiet and the burn alert can resolve while the outage continues. `OrdersDatabaseUnavailable` keeps paging, and the
+   simulator's client-side failures (Tasuki simulator dashboard) show what merchants see.
+5. **Overloaded?** Check CPU throttling and the replica count (`kubectl argo rollouts get rollout orders -n
+   tasuki-prod`). More replicas means a change to `replicas:` in `deploy/apps/overlays/prod/values/orders.yaml`
+   (`kubectl scale` is reverted by Argo CD). Look for one tenant sending far more than the rest (there is no
+   per-tenant rate limit yet).
 
 ## Escalate
 

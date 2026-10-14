@@ -84,6 +84,10 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body) // the status line is already sent; nothing useful to do on error
 }
 
+// probeClient makes one-off health checks. Without keep-alive, a check never leaves a spare
+// connection open that the server would have to wait for at shutdown.
+var probeClient = &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+
 // Probe checks a health endpoint and returns an error unless it answers 200. It powers the
 // `simulator healthcheck` subcommand, because the distroless image has no shell or curl.
 func Probe(ctx context.Context, url string) error {
@@ -93,7 +97,7 @@ func Probe(ctx context.Context, url string) error {
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := probeClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("probe %s: %w", url, err)
 	}

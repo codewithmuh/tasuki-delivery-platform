@@ -164,7 +164,10 @@ func TestApplyFailsWhenRedisIsDown(t *testing.T) {
 	if _, err := s.Rebuilt(context.Background()); err == nil {
 		t.Fatal("Rebuilt must fail")
 	}
-	if s.MarkRebuilt(context.Background(), t0) == nil {
+	if s.BeginRebuild(context.Background(), "tok") == nil {
+		t.Fatal("BeginRebuild must fail")
+	}
+	if s.MarkRebuilt(context.Background(), "tok", t0) == nil {
 		t.Fatal("MarkRebuilt must fail")
 	}
 }
@@ -197,15 +200,56 @@ func TestRebuildMarker(t *testing.T) {
 	if ok, err := s.Rebuilt(ctx); ok || err != nil {
 		t.Fatalf("fresh Redis: %v %v", ok, err)
 	}
-	if err := s.MarkRebuilt(ctx, t0); err != nil {
+	if err := s.BeginRebuild(ctx, "a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkRebuilt(ctx, "a", t0); err != nil {
 		t.Fatal(err)
 	}
 	if ok, _ := s.Rebuilt(ctx); !ok {
 		t.Fatal("marker not found")
 	}
+	if mr.Exists(RebuildingKeyPrefix + "a") {
+		t.Fatal("the in-flight key must be removed once the rebuild is marked")
+	}
 	mr.FlushAll()
 	if ok, _ := s.Rebuilt(ctx); ok {
 		t.Fatal("marker survived a flush")
+	}
+}
+
+func TestRebuildMarkerRefusesWhenRedisWasFlushedDuringTheRebuild(t *testing.T) {
+	mr, _, s := newStore(t)
+	ctx := context.Background()
+	if err := s.BeginRebuild(ctx, "a"); err != nil {
+		t.Fatal(err)
+	}
+	mr.FlushAll() // Redis loses its data while the replay runs
+	if err := s.MarkRebuilt(ctx, "a", t0); !errors.Is(err, ErrFlushedDuringRebuild) {
+		t.Fatalf("got %v, want ErrFlushedDuringRebuild", err)
+	}
+	if ok, _ := s.Rebuilt(ctx); ok {
+		t.Fatal("a half-empty Redis must not be marked as rebuilt")
+	}
+}
+
+func TestRebuildMarkerNeverMovesBackwards(t *testing.T) {
+	mr, _, s := newStore(t)
+	ctx := context.Background()
+	for _, tok := range []string{"early", "late"} {
+		if err := s.BeginRebuild(ctx, tok); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The rebuild that started later finishes first; the earlier one must not overwrite it.
+	if err := s.MarkRebuilt(ctx, "late", t0.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkRebuilt(ctx, "early", t0); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := mr.Get(RebuiltKey); got != t0.Add(time.Minute).UTC().Format(time.RFC3339) {
+		t.Fatalf("marker = %s", got)
 	}
 }
 
