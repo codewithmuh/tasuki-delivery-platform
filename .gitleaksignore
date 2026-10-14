@@ -1,0 +1,6 @@
+# Fake test fixtures (not real secrets) that gitleaks flagged in commit 7ed777b. Each line is also marked
+# `gitleaks:allow` in the source, so later commits stay clean even when line numbers move.
+7ed777bd94362e996a40a5900d965eb21b1e331e:services/console/src/lib/routes.test.ts:jwt:14
+7ed777bd94362e996a40a5900d965eb21b1e331e:services/fleet/internal/auth/auth_test.go:generic-api-key:16
+7ed777bd94362e996a40a5900d965eb21b1e331e:services/fleet/internal/tracking/sse_test.go:generic-api-key:24
+7ed777bd94362e996a40a5900d965eb21b1e331e:services/fleet/internal/ingest/ingest_test.go:generic-api-key:29

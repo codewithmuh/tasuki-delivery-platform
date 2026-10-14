@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	secret = "test-secret-that-is-at-least-32-bytes-long"
+	secret = "test-secret-that-is-at-least-32-bytes-long" // gitleaks:allow (test fixture)
 	other  = "another-secret-that-is-also-32-bytes-long!"
 )
 
