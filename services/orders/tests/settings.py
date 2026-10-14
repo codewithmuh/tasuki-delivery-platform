@@ -17,7 +17,7 @@ _FAKE = {
     "TRACKING_TOKEN_SECRET": "test-only-tracking-token-secret-32-chars-or-more",
     "ADMIN_TOKEN": "test-only-admin-token",
     "DISPATCH_URL": "http://dispatch.test",
-    "TRACKING_BASE_URL": "https://track.tasuki.test",
+    "TRACKING_PAGE_URL": "https://track.tasuki.test",
 }
 for _name, _value in _FAKE.items():
     os.environ.setdefault(_name, _value)

@@ -51,9 +51,11 @@ def test_readyz_fails_during_shutdown(client: APIClient) -> None:
     assert response.json() == {"status": "shutting_down"}
 
 
-def test_readyz_fails_when_the_database_is_down(
+def test_readyz_fails_when_the_database_never_answered(
     client: APIClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # A new pod that cannot reach the database (a wrong DATABASE_URL, say) takes no traffic. The
+    # grace window for outages of a running pod is tested in test_database_outage.py.
     class DownConnection:
         def cursor(self) -> Any:
             raise OperationalError("connection refused")
@@ -182,9 +184,11 @@ def test_json_formatter_and_request_id_filter() -> None:
     assert "ValueError" in out["exc"]
 
 
-def _import_settings(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, "-c", "import config.settings"],
+def _import_settings(
+    env: dict[str, str], code: str = "import config.settings"
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(  # noqa: S603 (the code is one of this file's constant snippets)
+        [sys.executable, "-c", code],
         env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(SERVICE_DIR / "src"), **env},
         capture_output=True,
         text=True,
@@ -212,6 +216,28 @@ def test_settings_refuse_to_start_without_secrets() -> None:
 
 def test_settings_load_with_every_secret() -> None:
     assert _import_settings(GOOD_ENV).returncode == 0
+
+
+_PRINT_DATABASE_OUTAGE_SETTINGS = (
+    "from config import settings as s; "
+    "print(s.DATABASES['default']['OPTIONS']['connect_timeout'], s.DB_RETRY_AFTER_SECONDS, "
+    "s.READINESS_DB_GRACE_SECONDS)"
+)
+
+
+def test_database_outage_settings() -> None:
+    defaults = _import_settings(GOOD_ENV, _PRINT_DATABASE_OUTAGE_SETTINGS)
+    assert defaults.stdout.split() == ["3", "2", "120"], defaults.stderr
+    tuned = _import_settings(
+        {
+            **GOOD_ENV,
+            "DB_CONNECT_TIMEOUT_SECONDS": "5",
+            "DB_RETRY_AFTER_SECONDS": "4",
+            "READINESS_DB_GRACE_SECONDS": "30",
+        },
+        _PRINT_DATABASE_OUTAGE_SETTINGS,
+    )
+    assert tuned.stdout.split() == ["5", "4", "30"], tuned.stderr
 
 
 @pytest.mark.parametrize(

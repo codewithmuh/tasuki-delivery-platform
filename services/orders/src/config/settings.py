@@ -65,6 +65,8 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Innermost, so it sees the views' exceptions first: PostgreSQL unavailable -> 503 Retry-After.
+    "core.middleware.DatabaseUnavailableMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -91,10 +93,18 @@ DATABASES = {
     )
 }
 if DATABASES["default"]["ENGINE"] == "django.db.backends.postgresql":
+    _db_options = DATABASES["default"].setdefault("OPTIONS", {})
     # A runaway query must not hold a worker (or locks) forever.
-    DATABASES["default"].setdefault("OPTIONS", {})["options"] = (
-        f"-c statement_timeout={_int('DB_STATEMENT_TIMEOUT_MS', 5000)}"
-    )
+    _db_options["options"] = f"-c statement_timeout={_int('DB_STATEMENT_TIMEOUT_MS', 5000)}"
+    # Give up on a server that does not answer the connection (psycopg waits 130 s by default), so
+    # requests during a failover get their 503 quickly instead of holding a worker thread.
+    _db_options["connect_timeout"] = _int("DB_CONNECT_TIMEOUT_SECONDS", 3)
+
+# While PostgreSQL is unavailable, requests answer 503 database_unavailable with this Retry-After.
+DB_RETRY_AFTER_SECONDS = _int("DB_RETRY_AFTER_SECONDS", 2)
+# /readyz fails on the database only once it has failed for this long (core.database). 0 makes it
+# fail at once. 120 s covers design §10's 1-2 minute failover.
+READINESS_DB_GRACE_SECONDS = _int("READINESS_DB_GRACE_SECONDS", 120)
 
 # ---- Security ----------------------------------------------------------------------------------
 # TLS ends at the load balancer; these keep responses safe if they are ever rendered by a browser.
@@ -159,6 +169,10 @@ SPECTACULAR_SETTINGS = {
     "ENUM_NAME_OVERRIDES": {
         "OrderStatusEnum": "orders.state_machine.OrderStatus",
     },
+    "POSTPROCESSING_HOOKS": [
+        "drf_spectacular.hooks.postprocess_schema_enums",  # the default hook, kept
+        "core.openapi.document_database_unavailable",
+    ],
 }
 
 # ---- Tasuki ------------------------------------------------------------------------------------
@@ -171,7 +185,9 @@ if not ORDERS_FIELD_KEYS:
 COURIER_TOKEN_SECRET = _secret("COURIER_TOKEN_SECRET")
 COURIER_TOKEN_TTL_SECONDS = _int("COURIER_TOKEN_TTL_SECONDS", 24 * 3600)
 TRACKING_TOKEN_SECRET = _secret("TRACKING_TOKEN_SECRET")
-TRACKING_BASE_URL = os.environ.get("TRACKING_BASE_URL", "http://127.0.0.1:8083").rstrip("/")
+# Base URL of the customer tracking page (the console): tracking_url = this + /track/<JWT>.
+# The page then streams from the tracking service itself.
+TRACKING_PAGE_URL = os.environ.get("TRACKING_PAGE_URL", "http://localhost:8088").rstrip("/")
 # Seeding/admin API. Empty means the admin endpoints are switched off (every call gets 401).
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 
