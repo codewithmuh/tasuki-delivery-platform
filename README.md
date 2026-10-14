@@ -4,6 +4,8 @@
 [![release](https://github.com/codewithmuh/tasuki-delivery-platform/actions/workflows/release.yml/badge.svg)](https://github.com/codewithmuh/tasuki-delivery-platform/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
+<img width="2172" height="724" alt="tasuki-github-cover-q75" src="https://github.com/user-attachments/assets/eb94039c-3550-4cec-88b6-6926bb4cea20" />
+
 > **Tasuki is a fictional company.** The merchants, couriers, customers and orders are simulated. The services,
 > the platform on AWS Tokyo, the SLOs, the load tests and the incidents are real.
 
