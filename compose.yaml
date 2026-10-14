@@ -1,6 +1,6 @@
 # Local run of every service with production-like hardening: `make up`, then `make down`.
 # Settings come from your shell or a `.env` file (see .env.example); defaults below.
-name: production-repo-template
+name: tasuki-delivery-platform
 
 x-hardening: &hardening
   read_only: true

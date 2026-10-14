@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please **do not open a public issue**. Report privately through
-[GitHub private vulnerability reporting](https://github.com/codewithmuh/production-repo-template/security/advisories/new)
+[GitHub private vulnerability reporting](https://github.com/codewithmuh/tasuki-delivery-platform/security/advisories/new)
 or email **contact@codewithmuh.com** with:
 
 - what is affected (service, version or commit),
@@ -31,7 +31,7 @@ Only the latest release receives security fixes.
 Verify a published image:
 
 ```bash
-cosign verify ghcr.io/codewithmuh/production-repo-template/api-go:<version> \
-  --certificate-identity-regexp 'https://github.com/codewithmuh/production-repo-template/' \
+cosign verify ghcr.io/codewithmuh/tasuki-delivery-platform/api-go:<version> \
+  --certificate-identity-regexp 'https://github.com/codewithmuh/tasuki-delivery-platform/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```

@@ -4,7 +4,9 @@
 
 ## Context
 
-What problem the system solves, for whom, and what is out of scope.
+This page describes **what is built today**. The target design for the whole platform, including scale
+assumptions, failure modes, SLOs and scope, is in [design.md](design.md). Until the first Tasuki services land,
+the components below are the template's sample services.
 
 ## Overview
 

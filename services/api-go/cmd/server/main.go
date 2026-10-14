@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/codewithmuh/production-repo-template/services/api-go/internal/server"
+	"github.com/codewithmuh/tasuki-delivery-platform/services/api-go/internal/server"
 )
 
 // version is set at build time: go build -ldflags "-X main.version=1.2.3".
