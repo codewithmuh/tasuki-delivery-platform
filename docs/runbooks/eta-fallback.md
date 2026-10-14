@@ -37,8 +37,11 @@ histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{
 ```bash
 kubectl -n tasuki-prod get pods -l 'app.kubernetes.io/name in (dispatch,routing)'
 kubectl -n tasuki-prod describe pod -l app.kubernetes.io/name=routing | grep -A3 -i 'last state'   # OOMKilled?
-kubectl -n tasuki-prod logs deploy/dispatch --tail=200 | jq -c 'select(.msg | test("osrm|fallback"; "i"))'
 ```
+
+dispatch does not log OSRM failures one by one: they show only in `dispatch_eta_requests_total{source="fallback"}`.
+After three failures in a row it skips OSRM for 10 s (a small circuit breaker), so the fallback share stays high
+while OSRM is slow, not only while it is down.
 
 ## Mitigate
 
@@ -50,10 +53,13 @@ kubectl -n tasuki-prod logs deploy/dispatch --tail=200 | jq -c 'select(.msg | te
 
 **`component=dispatch`** (OSRM failing):
 
-1. OSRM pods down or OOMKilled: the Kantō graph needs a lot of memory. Check the limit, and that the prepared map
-   data is mounted.
-2. OSRM slow: scale routing out.
-3. A new map extract broke routing: roll back the routing data version.
+1. OSRM pods down or OOMKilled: the Kantō graph needs a lot of memory. Check the limit (`resources` in
+   `deploy/apps/services/routing.yaml`). The graph is baked into the image and loads in seconds, so a pod that never
+   turns ready (its probes ask for the nearest road to Shibuya station) points at the image.
+2. OSRM slow: add routing replicas through git (`replicas:` in `deploy/apps/overlays/prod/values/routing.yaml`);
+   `kubectl scale` is reverted by Argo CD.
+3. A new map extract broke routing: the Kantō graph is baked into the routing image, so roll back by pinning the
+   previous `image.tag` in that file and merging.
 
 ## Escalate
 

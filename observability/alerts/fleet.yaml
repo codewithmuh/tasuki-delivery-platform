@@ -1,0 +1,149 @@
+# The location path and the live fleet cache (services/fleet; docs/design.md §7.2, §7.3, §10).
+# `make slo-check` validates and unit-tests this file.
+#
+# Why these exist: when a part of the location path stops completely, it records no SLI events, so the location
+# freshness and dispatch SLOs go quiet instead of burning (game days GD-01, GD-05, GD-07). These alerts watch the
+# stop itself. Prod only (namespace tasuki-prod), like the other cause alerts; `namespace` is kept in every `by`.
+#
+# Metrics (services/fleet/README.md, "Metrics and SLIs"):
+#   fleet_ingest_points_total{result}       fleet-ingest: accepted | invalid | future | duplicate | shed
+#   http_requests_total{service,status}     every service (internal/kit/server.go); 401 = courier token refused
+#   fleet_state_swept_couriers_total        fleet-state: couriers dropped from the geo sets after SEEN_WINDOW (60 s)
+#                                           without a newer point
+#   dispatch_couriers{state="online"}       dispatch: couriers seen in the last 60 s (one global value; use max).
+#                                           The fleet size the courier alerts compare with: without dispatch's
+#                                           metrics they cannot evaluate (dispatch's own alerts cover that)
+#   dispatch_paused                         dispatch: 1 while a replica waits for Redis to be rebuilt
+#   kube_statefulset_status_replicas_ready, kube_deployment_status_replicas_available: kube-state-metrics
+groups:
+  - name: tasuki-fleet
+    rules:
+      # The live fleet cache is Valkey (StatefulSet `redis`, one pod, no persistence: deploy/apps/base/redis.yaml).
+      # Losing it is designed for: fleet-state rebuilds it from the last 5 minutes of courier.locations, and
+      # dispatch pauses until the rebuild is done, then replays its own state (GD-01 expects about a minute and a
+      # half end to end). Five minutes means recovery is stuck, not slow. One alert, one rule per component:
+      #   valkey       the pod is not ready (dispatch cannot assign, positions are not written)
+      #   fleet-state  no ready replica: Redis unreachable, or the rebuild never finishes
+      #   dispatch     paused: waiting for fleet:state:rebuilt_at, or its replay of orders.events is failing
+      # Pages: a paused dispatch assigns nobody and records no assignment events, so its SLO stays quiet.
+      - alert: FleetCacheUnavailable
+        expr: |
+          max by (namespace) (
+            kube_statefulset_status_replicas_ready{namespace="tasuki-prod", statefulset="redis"}
+          ) < 1
+        for: 5m
+        labels:
+          severity: page
+          category: availability
+          component: valkey
+        annotations:
+          title: "the live fleet cache (Valkey) is down"
+          summary: "StatefulSet redis has had no ready pod for 5 minutes."
+          description: "Courier positions are not written, and dispatch has paused: no order gets a courier."
+          runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/redis-lost.md"
+
+      - alert: FleetCacheUnavailable
+        expr: |
+          max by (namespace) (
+            kube_deployment_status_replicas_available{namespace="tasuki-prod", deployment="fleet-state"}
+          ) < 1
+        for: 5m
+        labels:
+          severity: page
+          category: availability
+          component: fleet-state
+        annotations:
+          title: "fleet-state is not maintaining the fleet cache"
+          summary: "fleet-state has had no ready replica for 5 minutes (Redis unreachable, or the rebuild from Kafka is stuck)."
+          description: "Positions in Redis go stale and couriers leave the geo sets; dispatch matches on old data or waits for the rebuild."
+          runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/redis-lost.md"
+
+      - alert: FleetCacheUnavailable
+        expr: max by (namespace) (dispatch_paused{namespace="tasuki-prod"}) == 1
+        for: 5m
+        labels:
+          severity: page
+          category: availability
+          component: dispatch
+        annotations:
+          title: "dispatch has been paused for 5 minutes"
+          summary: "dispatch lost its state in Redis and is still waiting for the rebuild."
+          description: "No order is offered to a courier while dispatch is paused. Orders confirmed during the pause will all miss 60 s."
+          runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/redis-lost.md"
+
+      # The symptom of a location path that has stopped for couriers, whatever the cause (tokens refused, Kafka
+      # shedding everything, ingress lost, a courier app crashing): couriers drop out of the fleet without saying
+      # goodbye. A courier who ends a shift sends a last `offline` point and leaves the geo sets at once; only a
+      # courier whose points stopped arriving is swept after 60 s. So sweeps measure "lost", not "done".
+      # This replaces an "accepted points dropped versus normal" rule, which does not work here: shifts end at fixed
+      # times (14:30, 21:00 and 21:30 in normal-weekday cut points by half or more within minutes), and an ephemeral
+      # Prometheus has no week-old data for a seasonal baseline.
+      # Threshold: a fifth of the couriers online in the last 30 minutes (at least 5) swept within 10 minutes.
+      # keep_firing_for: the sweeps are a burst. Once they leave the 10-minute window the alert would resolve while
+      # the couriers are still gone; it stays firing for 30 minutes more instead.
+      - alert: CourierLocationsLost
+        expr: |
+          sum by (namespace) (increase(fleet_state_swept_couriers_total{namespace="tasuki-prod"}[10m]))
+          > on (namespace)
+          clamp_min(
+            0.2 * max by (namespace) (max_over_time(dispatch_couriers{namespace="tasuki-prod", state="online"}[30m])),
+            5
+          )
+        for: 1m
+        keep_firing_for: 30m
+        labels:
+          severity: page
+          category: availability
+        annotations:
+          title: "couriers are dropping out of the live fleet"
+          summary: "About {{ printf \"%.0f\" $value }} couriers stopped reporting without going offline within 10 minutes."
+          description: "Dispatch cannot offer orders to couriers it cannot see, and their positions on the map freeze. The freshness SLO does not count points that never arrive."
+          runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/courier-locations-lost.md"
+
+      # Courier tokens refused by fleet-ingest (POST /v1/locations) or dispatch (offer stream, accept, decline):
+      # COURIER_TOKEN_SECRET differs between orders (which signs) and the verifiers, e.g. a rotation applied to one
+      # side (GD-07 variant B). Readiness cannot catch a wrong value, so the pods stay Ready.
+      # Counted against fleet size, not as a share of requests: a client that is refused stops sending (the
+      # simulator's couriers log off at the first 401), so 401s come as one burst and the ratio never stays high.
+      # Threshold: more 401s in 10 minutes than a fifth of the couriers online in the last 30 minutes (at least 10),
+      # far above token-expiry edge cases (tokens last 24 h and are re-issued before they expire).
+      - alert: CourierTokensRejected
+        expr: |
+          sum by (namespace, service) (
+            increase(http_requests_total{namespace="tasuki-prod", service=~"fleet-ingest|dispatch", status="401"}[10m])
+          )
+          > on (namespace) group_left ()
+          clamp_min(
+            0.2 * max by (namespace) (max_over_time(dispatch_couriers{namespace="tasuki-prod", state="online"}[30m])),
+            10
+          )
+        for: 1m
+        keep_firing_for: 30m
+        labels:
+          severity: page
+          category: availability
+        annotations:
+          title: "{{ $labels.service }} is refusing courier tokens"
+          summary: "{{ $labels.service }} refused courier tokens about {{ printf \"%.0f\" $value }} times within 10 minutes, more than a fifth of the fleet."
+          description: "Couriers cannot report positions or take offers. Usually COURIER_TOKEN_SECRET differs between orders and fleet-ingest or dispatch."
+          runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/courier-locations-lost.md"
+
+      # fleet-ingest answers 503 + Retry-After and drops the batch when Kafka is slow (2 s) or its producer buffer
+      # is full. Short bursts are the design working: the courier app sends a fresher point 5 s later. A steady 5 %
+      # for 15 minutes is a capacity problem (Kafka too slow, or ingest under-provisioned for the load), so a
+      # ticket. A full outage pages through KafkaUnavailable and CourierLocationsLost instead.
+      - alert: FleetIngestShedding
+        expr: |
+          sum by (namespace) (rate(fleet_ingest_points_total{namespace="tasuki-prod", result="shed"}[10m]))
+          /
+          sum by (namespace) (rate(fleet_ingest_points_total{namespace="tasuki-prod"}[10m]))
+          > 0.05
+        for: 15m
+        labels:
+          severity: ticket
+          category: saturation
+        annotations:
+          title: "fleet-ingest is shedding GPS points"
+          summary: "{{ $value | humanizePercentage }} of GPS points were refused with 503 (limit 5 %)."
+          description: "Shed points are never written, so the freshness SLO cannot see them; couriers' positions update less often."
+          runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/courier-locations-lost.md"

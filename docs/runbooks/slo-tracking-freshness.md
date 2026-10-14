@@ -29,19 +29,26 @@ histogram_quantile(0.99, sum by (le) (rate(fleet_state_freshness_seconds_bucket{
 ```
 
 ```bash
-kubectl -n tasuki-prod get pods -l app.kubernetes.io/name=tracking
-kubectl -n tasuki-prod top pods -l app.kubernetes.io/name=tracking
+kubectl argo rollouts get rollout tracking -n tasuki-prod      # tracking is an Argo Rollout in prod
+kubectl -n tasuki-prod get hpa tracking                         # 2-6 replicas at 60 % CPU
+kubectl -n tasuki-prod top pods -l app.kubernetes.io/name=tracking,app.kubernetes.io/component=server
 ```
 
 ## Mitigate
 
-1. **Recent rollout?** `kubectl argo rollouts undo tracking -n tasuki-prod`.
+1. **Recent rollout?** `kubectl argo rollouts abort tracking -n tasuki-prod` during a canary; after one, pin the
+   previous `image.tag` in `deploy/apps/overlays/prod/values/tracking.yaml` and merge (Argo CD self-heal reverts
+   `kubectl argo rollouts undo`).
 2. **One replica behind:** delete that pod. Its viewers reconnect to healthy replicas, and the new pod starts from the
-   latest positions. Only the newest point matters for a live map.
-3. **All replicas behind:** CPU-bound. Scale out (each replica reads the whole stream, so scaling spreads the viewers,
-   not the Kafka reading) or turn on brownout (10 s updates, design §10).
+   latest positions after replaying `orders.events` and `dispatch.events` (tens of seconds). Only the newest point
+   matters for a live map.
+3. **All replicas behind:** CPU-bound. The HPA (2–6 replicas at 60 % CPU) should already be adding replicas; if it is
+   at 6, raise `autoscaling.maxReplicas` in git, or turn on the brownout (10 s updates, design §10). Both are
+   described in [surge-brownout](surge-brownout.md). Each replica reads the whole stream, so scaling spreads the
+   viewers, not the Kafka reading.
 4. **Age high before tracking even sees it** (fleet-state's freshness is just as bad): the problem is upstream, in the
-   courier apps, fleet-ingest or Kafka. Check fleet-ingest's shed rate (`fleet_ingest_shed_requests_total`) and the brokers.
+   courier apps, fleet-ingest or Kafka. Check fleet-ingest's shed rate (`fleet_ingest_shed_requests_total`) and the
+   brokers ([kafka-unavailable](kafka-unavailable.md)).
 5. **A replica sending nothing at all** is a different alert: [tracking-feed-stalled](tracking-feed-stalled.md).
 
 ## Escalate

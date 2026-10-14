@@ -1,0 +1,191 @@
+# Unit tests for observability/alerts/fleet.yaml (`make slo-check`): the live fleet cache and the location path.
+rule_files:
+  - ../fleet.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # GD-01 as designed: Valkey is replaced within a minute, so nothing pages.
+  - name: a one-minute Valkey restart does not page
+    interval: 1m
+    input_series:
+      - series: 'kube_statefulset_status_replicas_ready{namespace="tasuki-prod",statefulset="redis"}'
+        values: "1 0 1x10"
+      - series: 'kube_deployment_status_replicas_available{namespace="tasuki-prod",deployment="fleet-state"}'
+        values: "2 0 0 2x10"
+      - series: 'dispatch_paused{namespace="tasuki-prod",pod="dispatch-7c9d8-a1"}'
+        values: "0 1 1 0x10"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: FleetCacheUnavailable
+        exp_alerts: []
+
+  # GD-01 when recovery is stuck: Valkey never comes back, fleet-state stays unready, dispatch stays paused.
+  # Dev's dispatch is paused too, which is ignored (prod-only rules).
+  - name: Valkey down for 5 minutes pages once per component
+    interval: 1m
+    input_series:
+      - series: 'kube_statefulset_status_replicas_ready{namespace="tasuki-prod",statefulset="redis"}'
+        values: "1 0x10"
+      - series: 'kube_deployment_status_replicas_available{namespace="tasuki-prod",deployment="fleet-state"}'
+        values: "2 0x10"
+      - series: 'dispatch_paused{namespace="tasuki-prod",pod="dispatch-7c9d8-a1"}'
+        values: "0 1x10"
+      - series: 'dispatch_paused{namespace="tasuki-prod",pod="dispatch-7c9d8-b2"}'
+        values: "0 1x10"
+      - series: 'dispatch_paused{namespace="tasuki-dev",pod="dispatch-5f6a7-c3"}'
+        values: "1x10"
+    alert_rule_test:
+      - eval_time: 5m  # down since minute 1: still pending
+        alertname: FleetCacheUnavailable
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: FleetCacheUnavailable
+        exp_alerts:
+          - exp_labels: {severity: page, category: availability, component: valkey, namespace: tasuki-prod}
+            exp_annotations:
+              title: "the live fleet cache (Valkey) is down"
+              summary: "StatefulSet redis has had no ready pod for 5 minutes."
+              description: "Courier positions are not written, and dispatch has paused: no order gets a courier."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/redis-lost.md"
+          - exp_labels: {severity: page, category: availability, component: fleet-state, namespace: tasuki-prod}
+            exp_annotations:
+              title: "fleet-state is not maintaining the fleet cache"
+              summary: "fleet-state has had no ready replica for 5 minutes (Redis unreachable, or the rebuild from Kafka is stuck)."
+              description: "Positions in Redis go stale and couriers leave the geo sets; dispatch matches on old data or waits for the rebuild."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/redis-lost.md"
+          - exp_labels: {severity: page, category: availability, component: dispatch, namespace: tasuki-prod}
+            exp_annotations:
+              title: "dispatch has been paused for 5 minutes"
+              summary: "dispatch lost its state in Redis and is still waiting for the rebuild."
+              description: "No order is offered to a courier while dispatch is paused. Orders confirmed during the pause will all miss 60 s."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/redis-lost.md"
+
+  # GD-07 variant B: COURIER_TOKEN_SECRET is wrong on fleet-ingest. Every courier's next batch gets 401 and the
+  # (simulated) courier logs off, so the 401s are one burst of about one per courier and then the traffic stops.
+  # 100 couriers online; 80 refused within two minutes.
+  - name: a burst of 401s from a fifth of the fleet pages, and keeps firing after the burst
+    interval: 1m
+    input_series:
+      - series: 'dispatch_couriers{namespace="tasuki-prod",state="online",pod="dispatch-7c9d8-a1"}'
+        values: "100x5 50 0x60"
+      - series: 'http_requests_total{namespace="tasuki-prod",service="fleet-ingest",method="POST",route="POST /v1/locations",status="202"}'
+        values: "0+1200x5 6000x60"
+      - series: 'http_requests_total{namespace="tasuki-prod",service="fleet-ingest",method="POST",route="POST /v1/locations",status="401"}'
+        values: "0x5 40 80x60"
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: CourierTokensRejected
+        exp_alerts:
+          - exp_labels: {severity: page, category: availability, namespace: tasuki-prod, service: fleet-ingest}
+            exp_annotations:
+              title: "fleet-ingest is refusing courier tokens"
+              summary: "fleet-ingest refused courier tokens about 80 times within 10 minutes, more than a fifth of the fleet."
+              description: "Couriers cannot report positions or take offers. Usually COURIER_TOKEN_SECRET differs between orders and fleet-ingest or dispatch."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/courier-locations-lost.md"
+      - eval_time: 30m  # the burst left the 10-minute window at about minute 16; keep_firing_for holds it
+        alertname: CourierTokensRejected
+        exp_alerts:
+          - exp_labels: {severity: page, category: availability, namespace: tasuki-prod, service: fleet-ingest}
+            exp_annotations:
+              title: "fleet-ingest is refusing courier tokens"
+              summary: "fleet-ingest refused courier tokens about 44 times within 10 minutes, more than a fifth of the fleet."
+              description: "Couriers cannot report positions or take offers. Usually COURIER_TOKEN_SECRET differs between orders and fleet-ingest or dispatch."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/courier-locations-lost.md"
+      - eval_time: 55m
+        alertname: CourierTokensRejected
+        exp_alerts: []
+
+  - name: a few stray 401s (an expired token, a probe without one) do not page
+    interval: 1m
+    input_series:
+      - series: 'dispatch_couriers{namespace="tasuki-prod",state="online",pod="dispatch-7c9d8-a1"}'
+        values: "100x20"
+      - series: 'http_requests_total{namespace="tasuki-prod",service="fleet-ingest",method="POST",route="POST /v1/locations",status="401"}'
+        values: "0+1x20"
+      - series: 'http_requests_total{namespace="tasuki-prod",service="dispatch",method="GET",route="GET /v1/couriers/me/offers/stream",status="401"}'
+        values: "0x10 5x10"
+      - series: 'http_requests_total{namespace="tasuki-dev",service="fleet-ingest",method="POST",route="POST /v1/locations",status="401"}'
+        values: "0x5 500x15"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: CourierTokensRejected
+        exp_alerts: []
+
+  # The same incident seen by fleet-state: 60 of the 100 online couriers stop reporting and are swept 60 s later.
+  - name: couriers swept without going offline page; the alert outlives the burst
+    interval: 1m
+    input_series:
+      - series: 'dispatch_couriers{namespace="tasuki-prod",state="online",pod="dispatch-7c9d8-a1"}'
+        values: "100x5 40x60"
+      - series: 'dispatch_couriers{namespace="tasuki-prod",state="online",pod="dispatch-7c9d8-b2"}'
+        values: "100x5 40x60"
+      - series: 'fleet_state_swept_couriers_total{namespace="tasuki-prod",pod="fleet-state-6b5c4-a1"}'
+        values: "2x5 32 32x60"
+      - series: 'fleet_state_swept_couriers_total{namespace="tasuki-prod",pod="fleet-state-6b5c4-b2"}'
+        values: "1x5 31 31x60"
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: CourierLocationsLost
+        exp_alerts:
+          - exp_labels: {severity: page, category: availability, namespace: tasuki-prod}
+            exp_annotations:
+              title: "couriers are dropping out of the live fleet"
+              summary: "About 63 couriers stopped reporting without going offline within 10 minutes."
+              description: "Dispatch cannot offer orders to couriers it cannot see, and their positions on the map freeze. The freshness SLO does not count points that never arrive."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/courier-locations-lost.md"
+      - eval_time: 40m
+        alertname: CourierLocationsLost
+        exp_alerts:
+          - exp_labels: {severity: page, category: availability, namespace: tasuki-prod}
+            exp_annotations:
+              title: "couriers are dropping out of the live fleet"
+              summary: "About 63 couriers stopped reporting without going offline within 10 minutes."
+              description: "Dispatch cannot offer orders to couriers it cannot see, and their positions on the map freeze. The freshness SLO does not count points that never arrive."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/courier-locations-lost.md"
+      - eval_time: 60m
+        alertname: CourierLocationsLost
+        exp_alerts: []
+
+  # 14:30 in normal-weekday: the lunch shift (a third of the couriers) ends. They send an `offline` point and
+  # leave the geo sets at once, so the online count halves but nobody is swept. A few couriers who lose signal
+  # are swept, as on any day.
+  - name: a shift ending is not couriers lost
+    interval: 1m
+    input_series:
+      - series: 'dispatch_couriers{namespace="tasuki-prod",state="online",pod="dispatch-7c9d8-a1"}'
+        values: "260x10 120x20"
+      - series: 'fleet_state_swept_couriers_total{namespace="tasuki-prod",pod="fleet-state-6b5c4-a1"}'
+        values: "0+1x30"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: CourierLocationsLost
+        exp_alerts: []
+
+  - name: steady shedding above 5 % opens a ticket after 15 minutes; a short burst does not
+    interval: 1m
+    input_series:
+      - series: 'fleet_ingest_points_total{namespace="tasuki-prod",pod="fleet-ingest-5d4c3-a1",result="accepted"}'
+        values: "0+900x40"
+      - series: 'fleet_ingest_points_total{namespace="tasuki-prod",pod="fleet-ingest-5d4c3-a1",result="shed"}'
+        values: "0+100x40"
+      - series: 'fleet_ingest_points_total{namespace="tasuki-prod",pod="fleet-ingest-5d4c3-a1",result="invalid"}'
+        values: "0x40"
+      # A different namespace with a 3-minute burst of shedding only.
+      - series: 'fleet_ingest_points_total{namespace="tasuki-dev",pod="fleet-ingest-6e5d4-b2",result="accepted"}'
+        values: "0+100x40"
+      - series: 'fleet_ingest_points_total{namespace="tasuki-dev",pod="fleet-ingest-6e5d4-b2",result="shed"}'
+        values: "0x10 0+100x3 300x27"
+    alert_rule_test:
+      - eval_time: 12m  # 10 % from the start, but `for: 15m` has not elapsed
+        alertname: FleetIngestShedding
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: FleetIngestShedding
+        exp_alerts:
+          - exp_labels: {severity: ticket, category: saturation, namespace: tasuki-prod}
+            exp_annotations:
+              title: "fleet-ingest is shedding GPS points"
+              summary: "10% of GPS points were refused with 503 (limit 5 %)."
+              description: "Shed points are never written, so the freshness SLO cannot see them; couriers' positions update less often."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/courier-locations-lost.md"

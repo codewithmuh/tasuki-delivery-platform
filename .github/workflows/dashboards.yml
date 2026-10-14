@@ -1,0 +1,46 @@
+name: dashboards
+
+# Grafana dashboards as code (observability/dashboards). No path filters: the job takes seconds, and a required
+# check must always report.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least privilege: the job only reads the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: dashboards-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Pinned, verified by SHA-256 from the release checksums. Same version as .github/workflows/slo.yml.
+  PROMETHEUS_VERSION: 3.15.0
+  PROMETHEUS_SHA256: 2a542df32eac02ee17b9d844fb2aa1de00dafa5476579ba8a3ba862e9d572ea0 # prometheus-3.15.0.linux-amd64.tar.gz
+
+jobs:
+  lint:
+    name: Dashboards (lint)
+    runs-on: ubuntu-24.04 # pinned: upgrade deliberately, not when GitHub moves "latest"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install promtool (pinned, checksum-verified)
+        run: |
+          bin="$RUNNER_TEMP/bin"
+          mkdir -p "$bin" "$RUNNER_TEMP/dl"
+          cd "$RUNNER_TEMP/dl"
+          tarball="prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz"
+          curl -fsSLO "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/${tarball}"
+          echo "${PROMETHEUS_SHA256}  ${tarball}" | sha256sum --check --strict
+          tar -xzf "$tarball" --strip-components=1 "prometheus-${PROMETHEUS_VERSION}.linux-amd64/promtool"
+          install -m 0755 promtool "$bin/promtool"
+          echo "$bin" >> "$GITHUB_PATH"
+      # The generator and the checks use only the Python standard library: the runner's python3 is enough.
+      - name: Generator tests, freshness of generated files, dashboard and PromQL lint
+        run: |
+          python3 --version
+          make dashboards-lint

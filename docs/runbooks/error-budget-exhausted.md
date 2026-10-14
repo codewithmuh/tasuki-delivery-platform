@@ -24,16 +24,23 @@ slo:sli_error:ratio_rate1d{sloth_service="<service>"}       # what spent it, day
 # What the gate answers (exit 1 = blocked)
 kubectl -n monitoring exec deploy/rollout-gate -- /rollout-gate check --service <service>
 kubectl argo rollouts get rollout <service> -n tasuki-prod   # a blocked canary shows a failed error-budget analysis
+kubectl -n tasuki-prod get analysisruns --sort-by=.metadata.creationTimestamp | grep '^<service>-'   # <rollout>-<hash>-<revision>-<step>
 ```
 
 ## Mitigate
 
 1. **Announce the freeze** to everyone who ships to the service: only reliability fixes, security fixes and risk-reducing
    changes until the budget recovers.
-2. **Ship fixes through the override, deliberately.** Open a pull request to `deploy/` that removes the gate step from
-   this service's Rollout, linking this ticket or the postmortem. Revert it after the fix is out. During a live incident,
-   the on-call may instead run `kubectl argo rollouts promote <service> -n tasuki-prod --full` and record why.
-3. **Rollbacks are not blocked.** `kubectl argo rollouts undo` within the `rollbackWindow` skips the canary steps.
+2. **Ship fixes through the override, deliberately.** Open a pull request that sets `rollout.gate.dryRun: true` for
+   this service in `deploy/apps/overlays/prod/values/<service>.yaml` (the gate still runs and records its answer, but
+   cannot abort the canary; `rollout.gate.enabled: false` removes the step entirely), linking this ticket or the
+   postmortem. Revert it after the fix is out. The policy's live-incident override, `kubectl argo rollouts promote
+   <service> -n tasuki-prod --full`, only helps while the gate's analysis is still running: once it has failed, the
+   Rollout is aborted, and `kubectl argo rollouts retry rollout <service> -n tasuki-prod` runs the steps again, gate
+   included.
+3. **Rollbacks are not blocked.** Going back to one of the last 3 revisions (`rollbackWindow`) skips the canary steps
+   and the gate. Roll back in git (pin the previous `image.tag` in the service's prod values file): Argo CD's
+   self-heal reverts `kubectl argo rollouts undo`.
 4. **Make sure a postmortem exists** for every incident that burned more than 20 % of the budget.
 
 ## Escalate

@@ -1,0 +1,96 @@
+# Unit tests for observability/alerts/platform.yaml (`make slo-check`): External Secrets and Argo Rollouts.
+rule_files:
+  - ../platform.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # GD-07 variant A with explicit keys: FLEET_STREAM_TOKEN is missing from tasuki/dev/app, so the sync fails
+  # (SecretSyncedError) and External Secrets keeps the last good Secret. Scraped from the external-secrets
+  # namespace by a ServiceMonitor without honorLabels, so the ExternalSecret's namespace arrives as
+  # exported_namespace; the rule moves it back to `namespace`.
+  - name: an ExternalSecret not Ready for 10 minutes opens a ticket in its own namespace
+    interval: 1m
+    input_series:
+      - series: 'externalsecret_status_condition{namespace="external-secrets",exported_namespace="tasuki-dev",name="tasuki-app",condition="Ready",status="False"}'
+        values: "0 1x20"
+      - series: 'externalsecret_status_condition{namespace="external-secrets",exported_namespace="tasuki-dev",name="tasuki-app",condition="Ready",status="True"}'
+        values: "1 0x20"
+      - series: 'externalsecret_status_condition{namespace="external-secrets",exported_namespace="tasuki-prod",name="tasuki-app",condition="Ready",status="False"}'
+        values: "0x20"
+      - series: 'externalsecret_status_condition{namespace="external-secrets",exported_namespace="tasuki-prod",name="tasuki-app",condition="Ready",status="True"}'
+        values: "1x20"
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: ExternalSecretSyncFailing
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: ExternalSecretSyncFailing
+        exp_alerts:
+          - exp_labels: {severity: ticket, category: configuration, namespace: tasuki-dev, name: tasuki-app}
+            exp_annotations:
+              title: "ExternalSecret tasuki-dev/tasuki-app cannot sync"
+              summary: "tasuki-app has been not Ready for 10 minutes; the Kubernetes Secret keeps its last good values."
+              description: "Secret changes (rotations, new keys) do not reach the cluster until this is fixed."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/broken-secret-stuck-rollout.md"
+
+  # With honorLabels (or a relabeling that copies exported_namespace), the label arrives as `namespace` directly.
+  - name: the same alert when the ExternalSecret's namespace arrives as namespace
+    interval: 1m
+    input_series:
+      - series: 'externalsecret_status_condition{namespace="monitoring",name="alertmanager-slack",condition="Ready",status="False"}'
+        values: "1x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ExternalSecretSyncFailing
+        exp_alerts:
+          - exp_labels: {severity: ticket, category: configuration, namespace: monitoring, name: alertmanager-slack}
+            exp_annotations:
+              title: "ExternalSecret monitoring/alertmanager-slack cannot sync"
+              summary: "alertmanager-slack has been not Ready for 10 minutes; the Kubernetes Secret keeps its last good values."
+              description: "Secret changes (rotations, new keys) do not reach the cluster until this is fixed."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/broken-secret-stuck-rollout.md"
+
+  # GD-03 phase B or GD-07 in prod: the orders canary is aborted; fleet-ingest progresses normally. rollout_info
+  # has one series per Rollout, labelled with its current phase.
+  - name: a Degraded Rollout opens a ticket; a progressing or paused one does not
+    interval: 1m
+    input_series:
+      - series: 'rollout_info{namespace="tasuki-prod",name="orders",strategy="canary",traffic_router="",phase="Progressing"}'
+        values: "1 1 1 stale"
+      - series: 'rollout_info{namespace="tasuki-prod",name="orders",strategy="canary",traffic_router="",phase="Degraded"}'
+        values: "_ _ _ 1x15"
+      - series: 'rollout_info{namespace="tasuki-prod",name="fleet-ingest",strategy="canary",traffic_router="",phase="Paused"}'
+        values: "1x10 stale"
+      - series: 'rollout_info{namespace="tasuki-prod",name="fleet-ingest",strategy="canary",traffic_router="",phase="Healthy"}'
+        values: "_x10 1x8"
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: RolloutDegraded
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: RolloutDegraded
+        exp_alerts:
+          - exp_labels: {severity: ticket, category: delivery, namespace: tasuki-prod, name: orders}
+            exp_annotations:
+              title: "rollout tasuki-prod/orders is Degraded"
+              summary: "The orders Rollout was aborted or stopped progressing; the stable version is still serving."
+              description: "The release is stuck. Find out whether the gate aborted it (error budget) or the new pods cannot start."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/broken-secret-stuck-rollout.md"
+
+  # Without the relabeling, the controller's own namespace (argo-rollouts) wins and the Rollout's is exported.
+  - name: a Degraded Rollout is attributed to its own namespace when the label arrives as exported_namespace
+    interval: 1m
+    input_series:
+      - series: 'rollout_info{namespace="argo-rollouts",exported_namespace="tasuki-prod",name="dispatch",strategy="canary",traffic_router="",phase="Degraded"}'
+        values: "1x10"
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: RolloutDegraded
+        exp_alerts:
+          - exp_labels: {severity: ticket, category: delivery, namespace: tasuki-prod, name: dispatch}
+            exp_annotations:
+              title: "rollout tasuki-prod/dispatch is Degraded"
+              summary: "The dispatch Rollout was aborted or stopped progressing; the stable version is still serving."
+              description: "The release is stuck. Find out whether the gate aborted it (error budget) or the new pods cannot start."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/broken-secret-stuck-rollout.md"

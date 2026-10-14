@@ -1,0 +1,190 @@
+# The orders database: CloudNativePG Cluster `orders-db` in each environment (deploy/apps/base/postgres.yaml).
+# Dev: one instance. Prod: primary + one asynchronous standby in another AZ. `make slo-check` validates and
+# unit-tests this file.
+#
+# Why these exist: for the first READINESS_DB_GRACE_SECONDS (120 s) of a database outage, orders answers
+# 503 database_unavailable and the availability SLO burns. After that every orders pod turns unready, requests fail
+# at the connection without reaching Django, and the server-side SLI records nothing, so its burn alert resolves
+# while the outage goes on (GD-06). OrdersDatabaseUnavailable keeps paging for as long as there is no primary.
+#
+# Metrics, from the PodMonitor `orders-db` (port `metrics`, 9187, every instance):
+#   cnpg_pg_replication_{in_recovery,lag,streaming_replicas}, cnpg_pg_stat_archiver_{archived,failed}_count:
+#     CloudNativePG's default monitoring queries (config/manager/default-monitoring.yaml upstream).
+#   cnpg_collector_up{cluster}, cnpg_collector_pg_wal_archive_status{value="ready"|"done"}: the instance manager.
+#   barman_cloud_cloudnative_pg_io_last_{available,failed}_backup_timestamp: the Barman Cloud plugin v0.15.1
+#     (plugin-barman-cloud docs, "Observability"), served by the same instance manager endpoint; 0 until the first
+#     backup. VERIFY ON A CLUSTER: the names come from the plugin's source and docs; nobody has scraped them yet.
+#     In Prometheus: `count by (__name__, pod) ({__name__=~"barman_cloud_cloudnative_pg_io_.+"})`.
+#     They supersede the in-core cnpg_collector_last_*_backup_timestamp (deprecated since 1.26; documented to keep
+#     working only for in-core Barman Cloud and volume snapshots), so those are not used here.
+#   up: Prometheus.
+# Backup storage (S3 bucket, IAM role, Pod Identity association): TBD in infra/ (being added); see the runbook.
+groups:
+  - name: tasuki-orders-db
+    rules:
+      # No instance answers as a writable primary (in_recovery = 0). Design §10 allows 1–2 minutes for a failover;
+      # a planned switchover takes seconds. Two minutes without a primary means the failover is not happening.
+      # `or ... vector(0)`: when the primary's pod is gone its series are gone too, so count() would return
+      # nothing instead of 0. `unless`: if every orders-db scrape fails, the problem is the monitoring path, not
+      # the database (kube-prometheus-stack's TargetDown covers that), so this alert does not page for it.
+      - alert: OrdersDatabaseUnavailable
+        expr: |
+          (
+            count by (namespace) (
+              cnpg_pg_replication_in_recovery{namespace="tasuki-prod", pod=~"orders-db-[0-9]+"} == 0
+              and on (namespace, pod)
+              cnpg_collector_up{namespace="tasuki-prod", pod=~"orders-db-[0-9]+"} == 1
+            )
+            or on ()
+            label_replace(vector(0), "namespace", "tasuki-prod", "", "")
+          ) < 1
+          unless on (namespace)
+          max by (namespace) (up{namespace="tasuki-prod", pod=~"orders-db-[0-9]+"}) == 0
+        for: 2m
+        labels:
+          severity: page
+          category: availability
+        annotations:
+          title: "orders-db has no primary"
+          summary: "No orders-db instance has accepted writes for 2 minutes (a failover takes 1–2 minutes at most)."
+          description: "Order creation and quotes fail. Orders pods are unready, so the availability SLO under-counts the outage."
+          runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/postgres-failover.md"
+
+      # A pod that is the primary now was a standby within the last 15 minutes: CloudNativePG promoted it. Planned
+      # switchovers (minor upgrades with primaryUpdateStrategy: unsupervised, `kubectl cnpg promote`) fire it too;
+      # close those once the operator logs confirm it. An unplanned failover needs a look: replication is
+      # asynchronous, so the last commits before the crash may be gone, and the old primary must rejoin.
+      # Fires at once and clears 15 minutes after the promotion.
+      - alert: OrdersDatabaseFailover
+        expr: |
+          max by (namespace, pod) (
+            cnpg_pg_replication_in_recovery{namespace="tasuki-prod", pod=~"orders-db-[0-9]+"} == 0
+            and on (namespace, pod)
+            max_over_time(cnpg_pg_replication_in_recovery{namespace="tasuki-prod", pod=~"orders-db-[0-9]+"}[15m]) == 1
+          )
+        labels:
+          severity: ticket
+          category: redundancy
+        annotations:
+          title: "orders-db failed over to {{ $labels.pod }}"
+          summary: "{{ $labels.pod }} was a standby less than 15 minutes ago and is the primary now."
+          description: "Check whether it was planned, whether recent orders were lost (asynchronous replication), and that the old primary rejoined as a standby."
+          runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/postgres-failover.md"
+
+      # Prod expects one streaming standby. Without it there is nothing to fail over to and nothing but one EBS
+      # volume holding the data. 10 minutes: an old primary rejoining after a failover (pg_rewind or a fresh clone
+      # at this size) takes a few minutes.
+      - alert: OrdersDatabaseReplicationDegraded
+        expr: |
+          max by (namespace, pod) (
+            cnpg_pg_replication_streaming_replicas{namespace="tasuki-prod", pod=~"orders-db-[0-9]+"}
+            and on (namespace, pod)
+            cnpg_pg_replication_in_recovery{namespace="tasuki-prod", pod=~"orders-db-[0-9]+"} == 0
+          ) < 1
+        for: 10m
+        labels:
+          severity: ticket
+          category: redundancy
+          problem: no-standby
+        annotations:
+          title: "orders-db has no streaming standby"
+          summary: "The primary {{ $labels.pod }} has had no standby streaming from it for 10 minutes."
+          description: "A primary failure now means an outage until the instance is rebuilt, and possibly data loss."
+          runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/postgres-failover.md"
+
+      # Replication is asynchronous: the standby's replay lag is what an unplanned failover would lose. Within one
+      # region it is normally well under a second (0 when the standby has replayed everything it received).
+      # 30 s for 5 minutes: a failover now would lose tens of seconds of confirmed orders.
+      - alert: OrdersDatabaseReplicationDegraded
+        expr: |
+          max by (namespace, pod) (
+            cnpg_pg_replication_lag{namespace="tasuki-prod", pod=~"orders-db-[0-9]+"}
+          ) > 30
+        for: 5m
+        labels:
+          severity: ticket
+          category: redundancy
+          problem: lag
+        annotations:
+          title: "orders-db standby {{ $labels.pod }} is behind"
+          summary: "The standby is {{ $value | humanizeDuration }} behind the primary."
+          description: "An unplanned failover now would lose that much of the latest orders (asynchronous replication)."
+          runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/postgres-failover.md"
+
+      # Backups cover both environments: they are a pipeline (plugin, ObjectStore, IAM, bucket) that breaks the
+      # same way in dev, and dev finds it first. The routing sends every tasuki-dev alert to the ticket channel.
+      # One alert, three rules (label `problem`):
+      #   last-backup-failed   the newest base backup attempt failed (newer than the newest success)
+      #   no-recent-backup     no successful base backup for longer than the schedule allows: prod backs up hourly
+      #                        (3 h = two missed runs and a margin), dev daily (26 h). Also fires 30 minutes into a
+      #                        session whose first (immediate) backup never completed, because the timestamp is 0
+      #   wal-archiving        WAL archiving is failing or stuck: the RPO is no longer about 5 minutes
+      - alert: OrdersDatabaseBackupFailing
+        expr: |
+          max by (namespace) (
+            barman_cloud_cloudnative_pg_io_last_failed_backup_timestamp{namespace=~"tasuki-(dev|prod)", pod=~"orders-db-[0-9]+"}
+          )
+          > on (namespace)
+          max by (namespace) (
+            barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace=~"tasuki-(dev|prod)", pod=~"orders-db-[0-9]+"}
+          )
+        for: 5m
+        labels:
+          severity: ticket
+          category: durability
+          problem: last-backup-failed
+        annotations:
+          title: "the last orders-db base backup in {{ $labels.namespace }} failed"
+          summary: "The newest backup attempt failed at {{ $value | humanizeTimestamp }}; restores start from an older one."
+          description: "Restores still work from older backups plus WAL, but replay gets longer and retention may run out."
+          runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/backup-restore.md"
+
+      - alert: OrdersDatabaseBackupFailing
+        expr: |
+          time() - max by (namespace) (
+            barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="tasuki-prod", pod=~"orders-db-[0-9]+"}
+          ) > 3 * 3600
+          or
+          time() - max by (namespace) (
+            barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{namespace="tasuki-dev", pod=~"orders-db-[0-9]+"}
+          ) > 26 * 3600
+        for: 30m
+        labels:
+          severity: ticket
+          category: durability
+          problem: no-recent-backup
+        annotations:
+          title: "no recent orders-db base backup in {{ $labels.namespace }}"
+          summary: "The newest successful base backup is {{ $value | humanizeDuration }} old (schedule: hourly in prod, daily in dev)."
+          description: "Backups are not being taken or not completing. A restore would have to replay more WAL, or may have nothing to start from."
+          runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/backup-restore.md"
+
+      # Failing: archive attempts fail and none succeeded in 15 minutes (pg_stat_archiver, on the primary).
+      # Stuck: more than five 16 MiB WAL segments (80 MiB) wait to be archived; normally 0 or 1.
+      # Either way WAL also piles up in pg_wal, which fills the 5 Gi volume in time (kube-prometheus-stack's
+      # KubePersistentVolumeFillingUp watches the disk itself).
+      - alert: OrdersDatabaseBackupFailing
+        expr: |
+          (
+            sum by (namespace, pod) (
+              increase(cnpg_pg_stat_archiver_failed_count{namespace=~"tasuki-(dev|prod)", pod=~"orders-db-[0-9]+"}[15m])
+            ) > 0
+            unless on (namespace, pod)
+            sum by (namespace, pod) (
+              increase(cnpg_pg_stat_archiver_archived_count{namespace=~"tasuki-(dev|prod)", pod=~"orders-db-[0-9]+"}[15m])
+            ) > 0
+          )
+          or
+          max by (namespace, pod) (
+            cnpg_collector_pg_wal_archive_status{namespace=~"tasuki-(dev|prod)", pod=~"orders-db-[0-9]+", value="ready"}
+          ) > 5
+        for: 10m
+        labels:
+          severity: ticket
+          category: durability
+          problem: wal-archiving
+        annotations:
+          title: "orders-db WAL archiving is failing in {{ $labels.namespace }}"
+          summary: "{{ $labels.pod }} cannot archive WAL to the object store (failing attempts, or segments piling up)."
+          description: "Point-in-time recovery stops at the last archived segment, so the RPO grows by the minute; pg_wal also grows."
+          runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/backup-restore.md"

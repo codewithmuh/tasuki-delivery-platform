@@ -1,0 +1,1508 @@
+{
+  "id": null,
+  "uid": "tasuki-overview",
+  "title": "Tasuki overview",
+  "description": "Orders in, couriers out, and every SLO at a glance (docs/design.md §4, §9).",
+  "tags": [
+    "tasuki",
+    "overview"
+  ],
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "version": 1,
+  "links": [
+    {
+      "title": "Tasuki dashboards",
+      "type": "dashboards",
+      "tags": [
+        "tasuki"
+      ],
+      "asDropdown": true,
+      "includeVars": true,
+      "keepTime": true
+    },
+    {
+      "title": "Runbooks",
+      "type": "link",
+      "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/README.md",
+      "tooltip": "One runbook per alert",
+      "icon": "doc",
+      "targetBlank": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Data source",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "options": [],
+        "refresh": 1,
+        "regex": ""
+      },
+      {
+        "name": "namespace",
+        "label": "Namespace",
+        "description": "tasuki-prod or tasuki-dev. Both share one cluster and one Prometheus; only prod has SLOs.",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(up{namespace=~\"tasuki-.*\"}, namespace)",
+        "definition": "label_values(up{namespace=~\"tasuki-.*\"}, namespace)",
+        "current": {
+          "selected": true,
+          "text": "tasuki-prod",
+          "value": "tasuki-prod"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "options": [],
+        "refresh": 2,
+        "regex": "",
+        "sort": 1
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "name": "Paging alerts",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "enable": true,
+        "hide": false,
+        "iconColor": "red",
+        "expr": "ALERTS{alertstate=\"firing\", severity=\"page\"}",
+        "step": "60s",
+        "titleFormat": "{{alertname}}",
+        "textFormat": "{{severity}} {{sloth_service}} {{sloth_slo}} {{component}}",
+        "tagKeys": "severity,category",
+        "useValueForTime": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Right now",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": 2,
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      },
+      "type": "stat",
+      "title": "Orders created / min",
+      "description": "Orders confirmed by the orders API (201 on POST /v1/orders). The design's normal peak is about 100 / min (1.7 orders/s); a rainy Friday lunch is about 300 / min.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(orders_created_total{namespace=\"$namespace\"}[$__rate_interval])) * 60",
+          "legendFormat": "orders / min",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:/min",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 3,
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 4,
+        "y": 1
+      },
+      "type": "stat",
+      "title": "Deliveries / min",
+      "description": "Orders that reached `delivered` (the courier's proof of delivery was accepted). If this falls while orders keep coming in, couriers are the bottleneck: the rain-surge case in design §4.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(orders_status_transitions_total{namespace=\"$namespace\", status=\"delivered\"}[$__rate_interval])) * 60",
+          "legendFormat": "deliveries / min",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:/min",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 4,
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 8,
+        "y": 1
+      },
+      "type": "stat",
+      "title": "Couriers online",
+      "description": "Couriers in the Redis set `geo:couriers:all`, as dispatch samples it every 5 s (every dispatch replica reports the same number, hence max, not sum). While dispatch is not running, the panel falls back to the couriers the tracking service knows.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max(dispatch_couriers{namespace=\"$namespace\", state=\"online\"}) or max(tracking_couriers{namespace=\"$namespace\"})",
+          "legendFormat": "online",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 5,
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 12,
+        "y": 1
+      },
+      "type": "stat",
+      "title": "Couriers available",
+      "description": "Online couriers with no job (`geo:couriers:available`): the supply dispatch can match right now. Zero while orders wait means every new order waits for a courier to finish a delivery.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max(dispatch_couriers{namespace=\"$namespace\", state=\"available\"})",
+          "legendFormat": "available",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "green",
+                "value": 10
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 6,
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 16,
+        "y": 1
+      },
+      "type": "stat",
+      "title": "Orders waiting for a courier",
+      "description": "Orders dispatch owns that have no accepted courier yet, summed over the 23 wards. A growing number means demand is beating supply, and the dispatch-speed SLO (60 s) is next to suffer.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(dispatch_pending_orders{namespace=\"$namespace\"})",
+          "legendFormat": "waiting",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-dispatch-assignment-speed",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-dispatch-assignment-speed.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 50
+              },
+              {
+                "color": "red",
+                "value": 200
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 7,
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
+      "type": "stat",
+      "title": "Paging alerts firing",
+      "description": "Tasuki alerts with severity `page` firing now: SLO fast burns, outbox lag, Kafka consumer lag, stalled tracking. Anything above zero is an incident; the table at the bottom names them.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "count(ALERTS{alertstate=\"firing\", severity=\"page\", category!=\"\"}) or vector(0)",
+          "legendFormat": "paging",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbooks (one per alert)",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/README.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 8,
+      "type": "row",
+      "title": "Demand and supply",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      }
+    },
+    {
+      "id": 9,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 7
+      },
+      "type": "timeseries",
+      "title": "Orders, deliveries and cancellations / min",
+      "description": "The order funnel over time. A quote comes before each order and is valid for 2 minutes. Cancellations include orders that no courier took within 15 minutes (reason `no_courier_available`).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(orders_quotes_created_total{namespace=\"$namespace\"}[$__rate_interval])) * 60",
+          "legendFormat": "quotes",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(orders_created_total{namespace=\"$namespace\"}[$__rate_interval])) * 60",
+          "legendFormat": "orders created",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(orders_status_transitions_total{namespace=\"$namespace\", status=\"delivered\"}[$__rate_interval])) * 60",
+          "legendFormat": "delivered",
+          "range": true,
+          "instant": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(orders_status_transitions_total{namespace=\"$namespace\", status=\"cancelled\"}[$__rate_interval])) * 60",
+          "legendFormat": "cancelled",
+          "range": true,
+          "instant": false,
+          "refId": "D"
+        }
+      ],
+      "links": [
+        {
+          "title": "Orders, outbox & dispatch",
+          "url": "/d/tasuki-orders?${__url_time_range}&var-datasource=${datasource}&var-namespace=${namespace}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:/min",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 7
+      },
+      "type": "timeseries",
+      "title": "Couriers online by status",
+      "description": "Available (no job) and busy (on a job) couriers, stacked, so the top of the stack is everyone online. From dispatch's 5-second samples of the Redis geo sets that fleet-state maintains.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max(dispatch_couriers{namespace=\"$namespace\", state=\"available\"})",
+          "legendFormat": "available",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max(dispatch_couriers{namespace=\"$namespace\", state=\"online\"}) - max(dispatch_couriers{namespace=\"$namespace\", state=\"available\"})",
+          "legendFormat": "busy",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        }
+      ],
+      "links": [
+        {
+          "title": "Simulator: couriers by state",
+          "url": "/d/tasuki-simulator?${__url_time_range}&var-datasource=${datasource}&var-namespace=${namespace}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 30,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "Promises: dispatch, ETA, freshness",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      }
+    },
+    {
+      "id": 12,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 16
+      },
+      "type": "timeseries",
+      "title": "Time to an accepted courier (p50, p95) vs 60 s",
+      "description": "From order confirmation to a courier accepting the offer, for orders that got one. The dispatch-speed SLO wants 95 % of orders under 60 s (dashed line), so a p95 above the line means the SLO is burning. Orders that end with no courier count against the SLO but are not in these percentiles.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.5, sum by (le) (\n  rate(dispatch_assignment_duration_seconds_bucket{namespace=\"$namespace\", outcome=\"assigned\"}[$__rate_interval])\n))",
+          "legendFormat": "p50",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (\n  rate(dispatch_assignment_duration_seconds_bucket{namespace=\"$namespace\", outcome=\"assigned\"}[$__rate_interval])\n))",
+          "legendFormat": "p95",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-dispatch-assignment-speed",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-dispatch-assignment-speed.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 60
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 16
+      },
+      "type": "timeseries",
+      "title": "ETA fallback ratio",
+      "description": "Share of ETAs made without road times. orders: quotes that used the local estimate because dispatch's GET /v1/eta did not answer within 300 ms. dispatch: ETAs from straight-line distance × a Tokyo detour factor because OSRM failed. ETAFallbackHigh opens a ticket above 10 % (dashed line).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(orders_quotes_created_total{namespace=\"$namespace\", eta_source=\"fallback\"}[$__rate_interval]))\n/ sum(rate(orders_quotes_created_total{namespace=\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "quotes without a dispatch ETA (orders)",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(dispatch_eta_requests_total{namespace=\"$namespace\", source=\"fallback\"}[$__rate_interval]))\n/ sum(rate(dispatch_eta_requests_total{namespace=\"$namespace\"}[$__rate_interval]))",
+          "legendFormat": "ETAs without OSRM (dispatch)",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: eta-fallback",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/eta-fallback.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.1
+              }
+            ]
+          },
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 16
+      },
+      "type": "timeseries",
+      "title": "Dispatch outcomes / min",
+      "description": "How dispatching ends for each order: a courier accepted (`assigned`) or no courier was available (`no_courier`). More `no_courier` with flat demand means couriers went offline (rain) or are all busy.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (outcome) (rate(dispatch_assignment_duration_seconds_count{namespace=\"$namespace\"}[$__rate_interval])) * 60",
+          "legendFormat": "{{outcome}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-dispatch-assignment-speed",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-dispatch-assignment-speed.md",
+          "targetBlank": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:/min",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 30,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 24
+      },
+      "type": "timeseries",
+      "title": "Location freshness: GPS point → Redis (p50, p99) vs 2 s",
+      "description": "Time from fleet-ingest receiving a GPS point to fleet-state writing it to Redis, where dispatch reads it. The SLO wants 99 % of points within 2 s, so a p99 above the dashed line burns its budget.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(fleet_state_freshness_seconds_bucket{namespace=\"$namespace\"}[$__rate_interval])))",
+          "legendFormat": "p50",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(fleet_state_freshness_seconds_bucket{namespace=\"$namespace\"}[$__rate_interval])))",
+          "legendFormat": "p99",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-fleet-state-location-freshness",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-fleet-state-location-freshness.md",
+          "targetBlank": true
+        },
+        {
+          "title": "Location pipeline",
+          "url": "/d/tasuki-location?${__url_time_range}&var-datasource=${datasource}&var-namespace=${namespace}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 16,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 24
+      },
+      "type": "timeseries",
+      "title": "Tracking freshness: event age at the viewer (p50, p99) vs 10 s",
+      "description": "Age of each courier position (now − received_at) when tracking writes it to a customer's or the ops console's stream. The SLO wants 99 % of events younger than 10 s (dashed line).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(tracking_event_age_seconds_bucket{namespace=\"$namespace\"}[$__rate_interval])))",
+          "legendFormat": "p50",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(tracking_event_age_seconds_bucket{namespace=\"$namespace\"}[$__rate_interval])))",
+          "legendFormat": "p99",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: slo-tracking-freshness",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/slo-tracking-freshness.md",
+          "targetBlank": true
+        },
+        {
+          "title": "Location pipeline",
+          "url": "/d/tasuki-location?${__url_time_range}&var-datasource=${datasource}&var-namespace=${namespace}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 17,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 24
+      },
+      "type": "timeseries",
+      "title": "GPS points / s: accepted and shed",
+      "description": "Points fleet-ingest accepted and published to Kafka, and points it refused with 503 because Kafka could not take them (load shedding, design §10). The design peak is about 750 points/s.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(fleet_ingest_points_total{namespace=\"$namespace\", result=\"accepted\"}[$__rate_interval]))",
+          "legendFormat": "accepted",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(fleet_ingest_points_total{namespace=\"$namespace\", result=\"shed\"}[$__rate_interval]))",
+          "legendFormat": "shed (503)",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        }
+      ],
+      "links": [
+        {
+          "title": "Location pipeline",
+          "url": "/d/tasuki-location?${__url_time_range}&var-datasource=${datasource}&var-namespace=${namespace}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:points/s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 18,
+      "type": "row",
+      "title": "Error budgets and alerts",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      }
+    },
+    {
+      "id": 19,
+      "gridPos": {
+        "h": 9,
+        "w": 10,
+        "x": 0,
+        "y": 33
+      },
+      "type": "bargauge",
+      "title": "Error budget remaining (28 days)",
+      "description": "Share of each SLO's 28-day error budget that is left (Sloth's slo:period_error_budget_remaining:ratio). Orange at 25 % or less (SLOErrorBudgetLow: reliability work first). Red at 0 (SLOErrorBudgetExhausted: feature freeze, and the rollout gate blocks canaries). SLOs exist for tasuki-prod only, so this panel ignores the namespace variable.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "slo:period_error_budget_remaining:ratio",
+          "legendFormat": "{{sloth_service}} · {{sloth_slo}}",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Runbook: error-budget-low",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/error-budget-low.md",
+          "targetBlank": true
+        },
+        {
+          "title": "Runbook: error-budget-exhausted",
+          "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/error-budget-exhausted.md",
+          "targetBlank": true
+        },
+        {
+          "title": "SLOs",
+          "url": "/d/tasuki-slos?${__url_time_range}&var-datasource=${datasource}&var-namespace=${namespace}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 0.25
+              }
+            ]
+          },
+          "min": 0,
+          "max": 1,
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color"
+      }
+    },
+    {
+      "id": 20,
+      "gridPos": {
+        "h": 9,
+        "w": 14,
+        "x": 10,
+        "y": 33
+      },
+      "type": "table",
+      "title": "Firing alerts",
+      "description": "Every firing Tasuki alert (the SLO burn-rate alerts and the cause alerts in observability/alerts all carry a `category` label), plus any kube-prometheus-stack alert about this namespace. The runbook of each alert is listed in docs/runbooks/README.md (link on the alert name).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "ALERTS{alertstate=\"firing\", category!=\"\"} or ALERTS{alertstate=\"firing\", namespace=\"$namespace\"}",
+          "legendFormat": "{{alertname}}",
+          "range": false,
+          "instant": true,
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "alertname"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Runbooks (one per alert)",
+                    "url": "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/README.md",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true,
+              "__name__": true,
+              "alertstate": true,
+              "sloth_id": true,
+              "sloth_severity": true
+            },
+            "renameByName": {}
+          }
+        }
+      ]
+    }
+  ]
+}

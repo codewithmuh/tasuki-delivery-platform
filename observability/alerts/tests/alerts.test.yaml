@@ -18,7 +18,7 @@ tests:
       - series: 'orders_outbox_lag_seconds{namespace="tasuki-dev",pod="orders-relay-0"}'
         values: "600x25"
     alert_rule_test:
-      - eval_time: 13m # pending, not firing yet
+      - eval_time: 13m  # pending, not firing yet
         alertname: OrdersOutboxLagHigh
         exp_alerts: []
       - eval_time: 20m
@@ -31,25 +31,40 @@ tests:
               description: "Confirmed orders are not reaching Kafka, so dispatch cannot assign couriers to them."
               runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/orders-outbox-lag.md"
 
-  - name: fleet-state consumer lag is summed over partitions
+  - name: fleet-state consumer lag is summed over partitions, per namespace; dev lag is never added to prod's
     interval: 1m
     input_series:
-      - series: 'kafka_consumergroup_lag{consumergroup="fleet-state",topic="courier.locations",partition="0"}'
+      - series: 'kafka_consumergroup_lag{namespace="tasuki-prod",consumergroup="fleet-state",topic="courier.locations",partition="0"}'
         values: "5000x10"
-      - series: 'kafka_consumergroup_lag{consumergroup="fleet-state",topic="courier.locations",partition="1"}'
+      - series: 'kafka_consumergroup_lag{namespace="tasuki-prod",consumergroup="fleet-state",topic="courier.locations",partition="1"}'
         values: "5000x10"
-      - series: 'kafka_consumergroup_lag{consumergroup="dispatch",topic="courier.locations",partition="0"}'
+      - series: 'kafka_consumergroup_lag{namespace="tasuki-prod",consumergroup="dispatch",topic="courier.locations",partition="0"}'
         values: "50000x10"
     alert_rule_test:
       - eval_time: 10m
         alertname: KafkaConsumerLagHigh
         exp_alerts:
-          - exp_labels: {severity: page, category: backlog, consumergroup: fleet-state, topic: courier.locations}
+          - exp_labels: {severity: page, category: backlog, namespace: tasuki-prod, consumergroup: fleet-state, topic: courier.locations}
             exp_annotations:
               title: "fleet-state is falling behind on courier.locations"
               summary: "fleet-state is 10k messages behind (about 10 s of peak traffic is the limit)."
               description: "Courier positions in Redis are getting stale, so dispatch matches on old positions."
               runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/kafka-consumer-lag.md"
+
+  # GD-01/GD-05 finding: the rule used to sum dev and prod, so 4,000 + 4,000 paged although neither was behind.
+  - name: dev and prod lag below the limit each do not page together; dev lag alone never pages
+    interval: 1m
+    input_series:
+      - series: 'kafka_consumergroup_lag{namespace="tasuki-prod",consumergroup="fleet-state",topic="courier.locations",partition="0"}'
+        values: "4000x10"
+      - series: 'kafka_consumergroup_lag{namespace="tasuki-dev",consumergroup="fleet-state",topic="courier.locations",partition="0"}'
+        values: "4000x10"
+      - series: 'kafka_consumergroup_lag{namespace="tasuki-dev",consumergroup="fleet-state",topic="courier.locations",partition="1"}'
+        values: "90000x10"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: KafkaConsumerLagHigh
+        exp_alerts: []
 
   - name: tracking drops above 2 % open a ticket; brownout throttling is not a drop
     interval: 1m

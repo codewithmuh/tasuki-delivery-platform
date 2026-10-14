@@ -39,8 +39,10 @@ kubectl -n tasuki-prod describe pod <pod> | grep -A5 -i 'conditions\|last state'
 1. **Delete the pod.** Its viewers reconnect to the other replicas (SSE clients retry), and the replacement starts from
    recent positions. That restores service within seconds. Keep the logs first: `kubectl logs <pod> > stalled.log`.
 2. **Every replica stalls in turn:** the cause is shared, such as broker connectivity, a NetworkPolicy change, or a
-   message the decoder cannot handle (`tracking_records_invalid_total` rising). Roll back the last change:
-   `kubectl argo rollouts undo tracking -n tasuki-prod`.
+   message the decoder cannot handle (`tracking_records_invalid_total` rising). Roll back the last change: during a
+   canary `kubectl argo rollouts abort tracking -n tasuki-prod`; after one, pin the previous `image.tag` in
+   `deploy/apps/overlays/prod/values/tracking.yaml` and merge (Argo CD self-heal reverts `kubectl argo rollouts
+   undo`). A NetworkPolicy change is reverted the same way, in git.
 
 ## Escalate
 

@@ -1,0 +1,138 @@
+# Unit tests for the broker and stalled-consumer alerts in observability/alerts/kafka.yaml (`make slo-check`).
+# KafkaConsumerLagHigh is tested in alerts.test.yaml.
+rule_files:
+  - ../kafka.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # GD-05: a dispatch replica stops consuming one partition. Partition 0 has orders waiting and no commit; partition
+  # 1 is busy but moving; partition 2 is idle (no lag). Only partition 0 counts. Dev is ignored.
+  - name: dispatch stalled on one partition of orders.events pages; a busy or idle partition does not
+    interval: 1m
+    input_series:
+      - series: 'kafka_consumergroup_lag{namespace="tasuki-prod",consumergroup="dispatch",topic="orders.events",partition="0"}'
+        values: "3x15"
+      - series: 'kafka_consumergroup_current_offset{namespace="tasuki-prod",consumergroup="dispatch",topic="orders.events",partition="0"}'
+        values: "100x15"
+      - series: 'kafka_consumergroup_lag{namespace="tasuki-prod",consumergroup="dispatch",topic="orders.events",partition="1"}'
+        values: "2x15"
+      - series: 'kafka_consumergroup_current_offset{namespace="tasuki-prod",consumergroup="dispatch",topic="orders.events",partition="1"}'
+        values: "100+20x15"
+      - series: 'kafka_consumergroup_lag{namespace="tasuki-prod",consumergroup="dispatch",topic="orders.events",partition="2"}'
+        values: "0x15"
+      - series: 'kafka_consumergroup_current_offset{namespace="tasuki-prod",consumergroup="dispatch",topic="orders.events",partition="2"}'
+        values: "50x15"
+      - series: 'kafka_consumergroup_lag{namespace="tasuki-dev",consumergroup="dispatch",topic="orders.events",partition="0"}'
+        values: "9x15"
+      - series: 'kafka_consumergroup_current_offset{namespace="tasuki-dev",consumergroup="dispatch",topic="orders.events",partition="0"}'
+        values: "10x15"
+    alert_rule_test:
+      - eval_time: 1m  # lag and no commit, but `for: 2m` has not elapsed
+        alertname: KafkaConsumerStalled
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: KafkaConsumerStalled
+        exp_alerts:
+          - exp_labels: {severity: page, category: backlog, namespace: tasuki-prod, consumergroup: dispatch, topic: orders.events}
+            exp_annotations:
+              title: "dispatch has stopped consuming orders.events"
+              summary: "1 partition(s) of orders.events have messages waiting and no commit from dispatch for 5 minutes."
+              description: "Confirmed orders on those partitions never reach a dispatch matcher, so no courier is offered them."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/kafka-consumer-lag.md"
+
+  - name: the orders consumer stalled on dispatch.events opens a ticket after 10 minutes
+    interval: 1m
+    input_series:
+      - series: 'kafka_consumergroup_lag{namespace="tasuki-prod",consumergroup="orders",topic="dispatch.events",partition="4"}'
+        values: "0x2 1+1x20"
+      - series: 'kafka_consumergroup_current_offset{namespace="tasuki-prod",consumergroup="orders",topic="dispatch.events",partition="4"}'
+        values: "1+1x2 3x20"
+    alert_rule_test:
+      - eval_time: 12m  # stalled since minute 2: true from minute 7, `for: 10m` still pending
+        alertname: KafkaConsumerStalled
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: KafkaConsumerStalled
+        exp_alerts:
+          - exp_labels: {severity: ticket, category: backlog, namespace: tasuki-prod, consumergroup: orders, topic: dispatch.events}
+            exp_annotations:
+              title: "orders has stopped consuming dispatch.events"
+              summary: "1 partition(s) of dispatch.events have messages waiting and no commit from orders for 5 minutes."
+              description: "Order statuses in the orders API stop following dispatch (assigned, picked up, delivered). Nothing is lost."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/kafka-consumer-lag.md"
+
+  # GD-05 variant C: two brokers of three are lost. tasuki-dual-role-2 is Pending (no Ready condition, so only
+  # kube_pod_info exists for it) and tasuki-dual-role-1 is Running but not ready.
+  - name: fewer than two ready brokers in prod pages, counting a Pending broker as not ready
+    interval: 1m
+    input_series:
+      - series: 'kube_pod_info{namespace="tasuki-prod",pod="tasuki-dual-role-0",node="ip-10-40-1-1"}'
+        values: "1x10"
+      - series: 'kube_pod_info{namespace="tasuki-prod",pod="tasuki-dual-role-1",node="ip-10-40-2-1"}'
+        values: "1x10"
+      - series: 'kube_pod_info{namespace="tasuki-prod",pod="tasuki-dual-role-2",node=""}'
+        values: "1x10"
+      - series: 'kube_pod_status_ready{namespace="tasuki-prod",pod="tasuki-dual-role-0",condition="true"}'
+        values: "1x10"
+      - series: 'kube_pod_status_ready{namespace="tasuki-prod",pod="tasuki-dual-role-1",condition="true"}'
+        values: "1 1 0x8"
+    alert_rule_test:
+      - eval_time: 3m  # not ready since minute 2: pending
+        alertname: KafkaUnavailable
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: KafkaUnavailable
+        exp_alerts:
+          - exp_labels: {severity: page, category: availability, namespace: tasuki-prod}
+            exp_annotations:
+              title: "Kafka in tasuki-prod cannot take writes"
+              summary: "Only 1 Kafka broker(s) ready; writes need 2 in-sync replicas."
+              description: "Orders are still accepted (the outbox waits in PostgreSQL), but fleet-ingest sheds GPS points, tracking freezes and dispatch sees no new orders."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/kafka-unavailable.md"
+
+  # GD-05 variant B: one broker of three is lost. Writes continue; KafkaUnavailable stays quiet, and
+  # KafkaUnderReplicated opens a ticket only if the broker stays away for 15 minutes. Dev's only broker is
+  # down too, which never pages (prod-only rules; a dev Kafka outage is a dev drill, GD-05 variant A).
+  - name: one broker away in prod does not page; under-replication opens a ticket after 15 minutes
+    interval: 1m
+    input_series:
+      - series: 'kube_pod_info{namespace="tasuki-prod",pod="tasuki-dual-role-0"}'
+        values: "1x30"
+      - series: 'kube_pod_info{namespace="tasuki-prod",pod="tasuki-dual-role-1"}'
+        values: "1x30"
+      - series: 'kube_pod_info{namespace="tasuki-prod",pod="tasuki-dual-role-2"}'
+        values: "1x30"
+      - series: 'kube_pod_status_ready{namespace="tasuki-prod",pod="tasuki-dual-role-0",condition="true"}'
+        values: "1x30"
+      - series: 'kube_pod_status_ready{namespace="tasuki-prod",pod="tasuki-dual-role-1",condition="true"}'
+        values: "1x30"
+      - series: 'kube_pod_status_ready{namespace="tasuki-prod",pod="tasuki-dual-role-2",condition="true"}'
+        values: "0x30"
+      - series: 'kube_pod_info{namespace="tasuki-dev",pod="tasuki-dual-role-0"}'
+        values: "1x30"
+      - series: 'kube_pod_status_ready{namespace="tasuki-dev",pod="tasuki-dual-role-0",condition="true"}'
+        values: "0x30"
+      # 36 partitions, a third of them (those with a replica on the lost broker) under-replicated.
+      - series: 'kafka_topic_partition_under_replicated_partition{namespace="tasuki-prod",topic="courier.locations",partition="0"}'
+        values: "1x30"
+      - series: 'kafka_topic_partition_under_replicated_partition{namespace="tasuki-prod",topic="orders.events",partition="0"}'
+        values: "1x30"
+      - series: 'kafka_topic_partition_under_replicated_partition{namespace="tasuki-prod",topic="orders.events",partition="1"}'
+        values: "0x30"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: KafkaUnavailable
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: KafkaUnderReplicated
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: KafkaUnderReplicated
+        exp_alerts:
+          - exp_labels: {severity: ticket, category: redundancy, namespace: tasuki-prod}
+            exp_annotations:
+              title: "Kafka in tasuki-prod is running without a full set of replicas"
+              summary: "2 partition(s) under-replicated for 15 minutes."
+              description: "Writes still succeed, but one more broker loss stops them. Find the missing broker and bring it back."
+              runbook_url: "https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/runbooks/kafka-unavailable.md"
