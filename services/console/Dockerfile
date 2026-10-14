@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- build: static files with Vite ----
-FROM node:24.21.0-trixie-slim AS build
+FROM node:26.11.1-trixie-slim AS build
 WORKDIR /src
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
@@ -12,7 +12,7 @@ COPY src ./src
 RUN npm run build && rm dist/config.json
 
 # ---- runtime: unprivileged nginx (uid 101), read-only root filesystem, writes only to /tmp ----
-FROM nginxinc/nginx-unprivileged:1.30.5-alpine3.24
+FROM nginxinc/nginx-unprivileged:1.31.5-alpine3.24
 # The image's entrypoint renders /etc/nginx/templates into /tmp/tasuki at start, substituting
 # only CONSOLE_* variables (nginx's own $variables are left alone).
 ENV CONSOLE_TRACKING_BASE_URL="" \
