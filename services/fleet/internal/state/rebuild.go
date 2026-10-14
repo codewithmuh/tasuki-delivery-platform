@@ -2,6 +2,7 @@ package state
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"log/slog"
 	"sync/atomic"
@@ -60,6 +61,10 @@ func (r *Rebuilder) Ready() bool { return r.ready.Load() }
 
 func (r *Rebuilder) rebuild(ctx context.Context) error {
 	started := r.now()
+	token := rand.Text() // identifies this rebuild, so a Redis loss during the replay is noticed
+	if err := r.store.BeginRebuild(ctx, token); err != nil {
+		return err
+	}
 	if r.window > 0 {
 		replayed, err := r.replay(ctx, started.Add(-r.window))
 		if err != nil {
@@ -68,7 +73,9 @@ func (r *Rebuilder) rebuild(ctx context.Context) error {
 		r.logger.Info("rebuilt redis from kafka", "window", r.window.String(), "records", replayed,
 			"took", time.Since(started).String())
 	}
-	if err := r.store.MarkRebuilt(ctx, started); err != nil {
+	// If Redis was emptied during the replay, what was replayed before that is gone: returning the
+	// error makes Run retry the whole rebuild instead of marking a half-empty Redis as rebuilt.
+	if err := r.store.MarkRebuilt(ctx, token, started); err != nil {
 		return err
 	}
 	r.metrics.rebuilds.Inc()
