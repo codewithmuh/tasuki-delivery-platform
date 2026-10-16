@@ -103,6 +103,7 @@ Run `make` with no arguments to list every command.
 | [observability/](observability/) | SLO specs (Sloth), alert rules, Grafana dashboards as code |
 | [tools/rollout-gate](tools/rollout-gate/) | Go service that blocks canaries when an error budget is spent |
 | [docs/](docs/) | Design, architecture, threat model, runbooks, SLO policy, game days, ADRs |
+| [website/](website/) | The public landing page: static HTML, CSS and JS, no build step |
 | `mk/` | Make targets per area, included by the root [Makefile](Makefile) |
 
 ## Documentation
