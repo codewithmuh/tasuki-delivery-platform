@@ -1,0 +1,832 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tasuki · Open-source delivery platform</title>
+  <meta name="description" content="Tasuki is an open-source, self-hosted delivery platform. Connect it to the system you already run: create deliveries over an API, dispatch drivers, and show customers their delivery live.">
+  <meta name="theme-color" content="#f7f5f0" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0e1116" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Tasuki · Open-source delivery platform">
+  <meta property="og:description" content="Delivery infrastructure you run in your own cloud: orders API, dispatch, live driver tracking for your customers. Built in Tokyo, open source.">
+  <meta name="twitter:card" content="summary">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <script src="main.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="#top" aria-label="Tasuki home">
+        <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" class="mark-bg"/><path d="M26 -2 L34 6 L6 34 L-2 26 Z" class="mark-sash"/></svg>
+        <span class="brand-name">Tasuki</span><span class="brand-kanji" lang="ja">襷</span>
+      </a>
+      <button class="nav-toggle" aria-expanded="false" aria-controls="nav-links">
+        <span class="sr-only">Menu</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <nav id="nav-links" class="nav-links" aria-label="Sections">
+        <a href="#how">How it works</a>
+        <a href="#integrate">Integrate</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#scale">Scale</a>
+        <a href="#roadmap">Roadmap</a>
+        <a class="btn btn-small" href="https://github.com/codewithmuh/tasuki-delivery-platform">
+          <svg viewBox="0 0 16 16" aria-hidden="true" class="gh"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          GitHub
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- Hero -->
+    <section class="hero" id="top">
+      <div class="container hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow">Open source · Self-hosted · Built in Tokyo</p>
+          <h1>The delivery platform you run in your own cloud.</h1>
+          <p class="lede">
+            Your business already takes orders. Tasuki adds the delivery side: your system sends an order over
+            the API, Tasuki finds the nearest driver, streams the driver's position to your customer's phone, and
+            reports every status change back to you.
+          </p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="https://github.com/codewithmuh/tasuki-delivery-platform">Read the code on GitHub</a>
+            <a class="btn btn-ghost" href="#how">See how it works</a>
+          </div>
+          <p class="status-note">
+            <span class="dot dot-wip" aria-hidden="true"></span>
+            <span>Early and honest: orders, live tracking and the fleet pipeline run today; dispatch is being finished.
+              <a href="#features">See exactly what's built</a>.</span>
+          </p>
+        </div>
+
+        <figure class="hero-visual" aria-label="Animated example: a driver picks up an order and the customer's tracking card updates live">
+          <div class="map-card">
+            <svg class="map" viewBox="0 0 560 440" role="img" aria-labelledby="map-title">
+              <title id="map-title">A driver rides from the store to the customer on city streets</title>
+              <rect class="street-bg" width="560" height="440"/>
+              <g>
+                <rect class="blk" x="-31" y="-21" width="38" height="82" rx="6"/>
+                <rect class="blk" x="13" y="-21" width="38" height="82" rx="6"/>
+                <rect class="blk" x="-31" y="79" width="82" height="72" rx="6"/>
+                <rect class="blk" x="-31" y="169" width="82" height="72" rx="6"/>
+                <rect class="blk" x="-31" y="259" width="38" height="72" rx="6"/>
+                <rect class="blk" x="13" y="259" width="38" height="72" rx="6"/>
+                <rect class="blk" x="-31" y="349" width="82" height="112" rx="6"/>
+                <rect class="blk" x="69" y="-21" width="82" height="82" rx="6"/>
+                <rect class="blk" x="69" y="79" width="82" height="72" rx="6"/>
+                <rect class="blk" x="69" y="169" width="38" height="72" rx="6"/>
+                <rect class="blk" x="113" y="169" width="38" height="72" rx="6"/>
+                <rect class="blk" x="69" y="259" width="82" height="72" rx="6"/>
+                <rect class="blk" x="69" y="349" width="82" height="112" rx="6"/>
+                <rect class="blk" x="169" y="-21" width="82" height="82" rx="6"/>
+                <rect class="blk" x="169" y="79" width="38" height="72" rx="6"/>
+                <rect class="blk" x="213" y="79" width="38" height="72" rx="6"/>
+                <rect class="blk" x="169" y="169" width="82" height="72" rx="6"/>
+                <rect class="blk" x="169" y="259" width="82" height="72" rx="6"/>
+                <rect class="blk" x="169" y="349" width="38" height="112" rx="6"/>
+                <rect class="blk" x="213" y="349" width="38" height="112" rx="6"/>
+                <rect class="blk" x="269" y="-21" width="38" height="82" rx="6"/>
+                <rect class="blk" x="313" y="-21" width="38" height="82" rx="6"/>
+                <rect class="blk" x="269" y="79" width="82" height="72" rx="6"/>
+                <rect class="blk" x="269" y="169" width="82" height="72" rx="6"/>
+                <rect class="park" x="269" y="259" width="82" height="72" rx="6"/>
+                <rect class="blk" x="269" y="349" width="82" height="112" rx="6"/>
+                <rect class="blk" x="369" y="-21" width="82" height="82" rx="6"/>
+                <rect class="blk" x="369" y="79" width="82" height="72" rx="6"/>
+                <rect class="blk" x="369" y="169" width="38" height="72" rx="6"/>
+                <rect class="blk" x="413" y="169" width="38" height="72" rx="6"/>
+                <rect class="blk" x="369" y="259" width="82" height="72" rx="6"/>
+                <rect class="blk" x="369" y="349" width="82" height="112" rx="6"/>
+                <rect class="blk" x="469" y="-21" width="122" height="82" rx="6"/>
+                <rect class="blk" x="469" y="79" width="58" height="72" rx="6"/>
+                <rect class="blk" x="533" y="79" width="58" height="72" rx="6"/>
+                <rect class="blk" x="469" y="169" width="122" height="72" rx="6"/>
+                <rect class="blk" x="469" y="259" width="122" height="72" rx="6"/>
+                <rect class="blk" x="469" y="349" width="58" height="112" rx="6"/>
+                <rect class="blk" x="533" y="349" width="58" height="112" rx="6"/>
+              </g>
+              <path class="river" d="M-10 398 C 110 372, 210 432, 320 404 S 500 372, 572 394"/>
+              <path id="route-base" class="route-base" d="M60 160 V250 H260 V160 H460"/>
+              <path id="route-done" class="route-done" d="M60 160 V250 H260 V160 H460"/>
+              <g class="pin pin-store" transform="translate(60 250)">
+                <circle r="13"/>
+                <text y="4.5" lang="ja">店</text>
+              </g>
+              <text class="pin-label" x="80" y="282">Store</text>
+              <g class="pin pin-home" transform="translate(460 160)">
+                <circle r="13"/>
+                <text y="4.5" lang="ja">家</text>
+              </g>
+              <text class="pin-label" x="474" y="196">Customer</text>
+              <g id="courier" class="courier" transform="translate(60 160)">
+                <circle class="courier-halo" r="16"/>
+                <circle class="courier-dot" r="7"/>
+              </g>
+            </svg>
+
+            <div class="ticker" aria-hidden="true">
+              <div class="ticker-head">GET /v1/track/…/stream</div>
+              <div id="ticker-status"><span class="k">event:</span> status <span class="v">{"status":"confirmed"}</span></div>
+              <div id="ticker-pos"><span class="k">event:</span> position <span class="v">{"lat":35.6640,"lng":139.6927}</span></div>
+            </div>
+          </div>
+
+          <div class="phone-card" aria-hidden="true">
+            <div class="phone-top">
+              <svg class="mark mark-sm" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" class="mark-bg"/><path d="M26 -2 L34 6 L6 34 L-2 26 Z" class="mark-sash"/></svg>
+              <span>Your order</span>
+              <span class="live"><span class="live-dot"></span>Live</span>
+            </div>
+            <p class="phone-eta" id="phone-eta">Picked up · arriving in 7 min</p>
+            <ol class="steps" id="steps">
+              <li class="done">Confirmed</li>
+              <li class="done">Driver assigned</li>
+              <li class="now">Picked up</li>
+              <li>Delivered</li>
+            </ol>
+            <div class="bar"><span id="bar-fill" style="width: 62%"></span></div>
+          </div>
+
+          <button class="sound-toggle" type="button" aria-pressed="false" hidden>
+            <svg class="sound-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/>
+              <path class="waves" d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>
+              <path class="mute" d="M16 9.5l5 5M21 9.5l-5 5"/>
+            </svg>
+            <span class="sound-label">Turn on sound</span>
+          </button>
+        </figure>
+      </div>
+
+      <div class="container">
+        <ul class="stack-strip" aria-label="Built with">
+          <li>Go</li><li>Python · Django</li><li>Kafka</li><li>PostgreSQL</li><li>Valkey</li><li>OSRM</li>
+          <li>React · MapLibre</li><li>Kubernetes</li><li>Terraform</li><li>Argo CD</li><li>OpenTelemetry</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Problem -->
+    <section class="section" id="why">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow">Why it exists</p>
+          <h2>Taking orders was the easy part.</h2>
+          <p class="section-lede">
+            When customers start asking for delivery, you need a second system. It must track every moving driver
+            every few seconds, assign the right one in under a minute, never lose or double-book an order, and keep
+            each customer's map live. That is a different kind of software from a shop or an ordering app, and it
+            should not share a server with one. Tasuki is that system, ready to deploy next to yours.
+          </p>
+        </div>
+        <div class="grid grid-4">
+          <article class="card">
+            <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg></div>
+            <h3>Live location at scale</h3>
+            <p>GPS updates flow through Kafka, not your main database. Hundreds a second never slow your shop down.</p>
+          </article>
+          <article class="card">
+            <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V7l8-4z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg></div>
+            <h3>Orders never lost or doubled</h3>
+            <p>Idempotency keys, a transactional outbox and deduplicated events make every retry safe.</p>
+          </article>
+          <article class="card">
+            <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg></div>
+            <h3>Customers see their delivery</h3>
+            <p>A signed tracking link per order, live in any phone browser. Nothing to install. English and Japanese.</p>
+          </article>
+          <article class="card">
+            <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 18a4.5 4.5 0 0 1-.5-9A6 6 0 0 1 18 8.5a4 4 0 0 1-.5 9.5H7z"/></svg></div>
+            <h3>Runs in your account</h3>
+            <p>Your cloud, your region, your data. No per-delivery fee to a vendor and no lock-in. MIT licensed.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- Who it's for -->
+    <section class="section section-alt" id="who">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow">Who it's for</p>
+          <h2>Built for whoever runs the deliveries.</h2>
+        </div>
+        <div class="grid grid-3">
+          <article class="card card-lg">
+            <h3>Businesses with their own drivers</h3>
+            <p>Restaurant groups, grocers, pharmacies, retailers. Your checkout calls the API; your drivers get offers
+              on their phones; your customers get a live link.</p>
+          </article>
+          <article class="card card-lg">
+            <h3>Delivery companies</h3>
+            <p>Serve many merchants from one installation. Every merchant is a tenant with its own API keys and stores,
+              and every query is scoped to its tenant.</p>
+          </article>
+          <article class="card card-lg">
+            <h3>Engineering teams</h3>
+            <p>Rather not spend a year building dispatch and tracking? Start from a documented, tested design and
+              change what your business needs.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- How it works -->
+    <section class="section" id="how">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow">How it works</p>
+          <h2>Every order is handed on, never dropped.</h2>
+          <p class="section-lede">
+            A <span lang="ja">襷</span> (tasuki) is the sash that ekiden relay runners hand to each other. Tasuki hands
+            every order on the same way: your system, then dispatch, then a driver, then your customer. The platform's
+            job is to make sure the sash is never dropped, never handed to two runners, and always visible.
+          </p>
+        </div>
+
+        <ol class="flow">
+          <li class="flow-step">
+            <span class="flow-num">1</span>
+            <h3>Your system creates the delivery</h3>
+            <p>Ask for a price and an ETA, then create the order with an <code>Idempotency-Key</code>. You get an order
+              ID and a tracking link for your customer.</p>
+            <code class="flow-api">POST /v1/quotes · POST /v1/orders</code>
+          </li>
+          <li class="flow-step">
+            <span class="flow-num">2</span>
+            <h3>Dispatch finds a driver</h3>
+            <p>The nearest free driver gets an offer with a 30-second timer. On a decline or a timeout, the next one does.
+              Travel times come from real roads (OSRM).</p>
+            <code class="flow-api">offers over server-sent events</code>
+          </li>
+          <li class="flow-step">
+            <span class="flow-num">3</span>
+            <h3>Drivers move, customers watch</h3>
+            <p>The driver's phone sends GPS in small batches. Your customer's tracking page moves the marker live and
+              keeps the ETA honest.</p>
+            <code class="flow-api">POST /v1/locations · GET /v1/track/…/stream</code>
+          </li>
+          <li class="flow-step">
+            <span class="flow-num">4</span>
+            <h3>Your system stays in sync</h3>
+            <p>Every change (confirmed, assigned, picked up, delivered) is an event with a full history. Signed webhooks
+              that push it to you are next on the roadmap.</p>
+            <code class="flow-api">GET /v1/orders/{id} · webhooks (next)</code>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- Integrate -->
+    <section class="section section-alt" id="integrate">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow">Integrate</p>
+          <h2>A few HTTP calls, not a migration.</h2>
+          <p class="section-lede">
+            Keep your shop, your app and your database. Tasuki sits beside them and talks plain JSON over HTTPS. These
+            are the real endpoints: run <code>make up</code> and they answer on your laptop.
+          </p>
+        </div>
+
+        <div class="tabs" data-tabs>
+          <div class="tablist" role="tablist" aria-label="Integration examples">
+            <button role="tab" id="tab-create" aria-controls="panel-create" aria-selected="true">Create a delivery</button>
+            <button role="tab" id="tab-track" aria-controls="panel-track" aria-selected="false" tabindex="-1">Live tracking</button>
+            <button role="tab" id="tab-driver" aria-controls="panel-driver" aria-selected="false" tabindex="-1">Driver app</button>
+            <button role="tab" id="tab-sync" aria-controls="panel-sync" aria-selected="false" tabindex="-1">Stay in sync</button>
+          </div>
+
+          <div class="tabpanel" role="tabpanel" id="panel-create" aria-labelledby="tab-create" tabindex="0">
+            <div class="code">
+              <button class="copy" type="button">Copy</button>
+<pre><code data-lang="bash"># Locally (make up): ORDERS=http://localhost:8000
+
+# 1. Ask for a price and an ETA. A quote is valid for 2 minutes.
+curl "$ORDERS/v1/quotes" \
+  -H "Authorization: Bearer $TASUKI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "store_id": "str_01JA2Q…",
+    "dropoff": {
+      "lat": 35.6618, "lng": 139.6983, "ward": "shibuya",
+      "address": "1-2-3 Jinnan, Shibuya-ku",
+      "customer_name": "Sato Hana", "customer_phone": "090-1234-5678"
+    }
+  }'
+# 201 {"quote_id": "quo_01JA2R…", "fee_yen": 742, "eta_seconds": 1920, "expires_at": "…"}
+
+# 2. Turn the quote into an order. Retrying with the same key never creates a second one.
+curl "$ORDERS/v1/orders" \
+  -H "Authorization: Bearer $TASUKI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: checkout-8812" \
+  -d '{"quote_id": "quo_01JA2R…"}'
+# 201 {"order_id": "ord_01JA2S…", "status": "confirmed", "tracking_url": "…/track/eyJhbGci…"}</code></pre>
+            </div>
+          </div>
+
+          <div class="tabpanel" role="tabpanel" id="panel-track" aria-labelledby="tab-track" tabindex="0" hidden>
+            <div class="code">
+              <button class="copy" type="button">Copy</button>
+<pre><code data-lang="js">// Send your customer the tracking_url as it is (a hosted page in English and Japanese),
+// or draw the delivery inside your own app. Locally: TRACKING = "http://localhost:8083".
+const stream = new EventSource(`${TRACKING}/v1/track/${token}/stream`);
+
+stream.addEventListener("status", (e) => {
+  const { status, eta } = JSON.parse(e.data); // confirmed → assigned → picked_up → delivered
+  renderStatus(status, eta);
+});
+
+stream.addEventListener("position", (e) => {
+  const { lat, lng } = JSON.parse(e.data); // the assigned driver, every few seconds
+  moveDriverMarker(lat, lng);
+});
+
+// delivered, cancelled, failed or expired: the server closes the stream
+stream.addEventListener("end", () => stream.close());</code></pre>
+            </div>
+          </div>
+
+          <div class="tabpanel" role="tabpanel" id="panel-driver" aria-labelledby="tab-driver" tabindex="0" hidden>
+            <div class="code">
+              <button class="copy" type="button">Copy</button>
+<pre><code data-lang="bash"># What a driver app sends. Locally: FLEET=http://localhost:8081, DISPATCH=http://localhost:8082
+
+# Every few seconds while moving: a batch of 1 to 50 GPS points.
+curl "$FLEET/v1/locations" \
+  -H "Authorization: Bearer $DRIVER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"points": [{
+        "lat": 35.6581, "lng": 139.7017, "accuracy_m": 8,
+        "speed_mps": 4.2, "heading_deg": 90,
+        "device_time": "2026-10-16T03:12:08Z",
+        "status": "to_dropoff", "order_id": "ord_01JA2S…"
+      }]}'
+# 202 {"accepted": 1, "dropped": 0}  (503 + Retry-After when the platform sheds load)
+
+# Offers arrive on a stream. The driver has 30 seconds to answer.
+curl -N "$DISPATCH/v1/couriers/me/offers/stream" -H "Authorization: Bearer $DRIVER_TOKEN"
+curl -X POST "$DISPATCH/v1/offers/off_01JA2T…/accept" -H "Authorization: Bearer $DRIVER_TOKEN"
+
+# Proof of delivery: the driver must be within 500 m of the drop-off.
+curl -X POST "$ORDERS/v1/courier/orders/ord_01JA2S…/deliver" \
+  -H "Authorization: Bearer $DRIVER_TOKEN" -H "Content-Type: application/json" \
+  -d '{"lat": 35.6619, "lng": 139.6981}'</code></pre>
+            </div>
+          </div>
+
+          <div class="tabpanel" role="tabpanel" id="panel-sync" aria-labelledby="tab-sync" tabindex="0" hidden>
+            <div class="code">
+              <button class="copy" type="button">Copy</button>
+<pre><code data-lang="bash"># Today: read an order with its full status history.
+curl "$ORDERS/v1/orders/ord_01JA2S…" -H "Authorization: Bearer $TASUKI_API_KEY"
+
+# Next on the roadmap: signed webhooks to your endpoint, retried until it answers 2xx,
+# signed with HMAC-SHA256 over a timestamp and the body, with a 5-minute replay window.
+# They carry the events the platform already publishes inside, for example:
+{
+  "schema": "order.event.v1",
+  "event_id": "evt_01JA2V…",
+  "type": "OrderPickedUp",
+  "order_id": "ord_01JA2S…",
+  "merchant_id": "mer_01JA2P…",
+  "occurred_at": "2026-10-16T03:14:41Z"
+}</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <p class="fine">
+          Full reference: <a href="https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/services/orders/openapi.yaml">OpenAPI spec</a>
+          · <a href="https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/contracts/README.md">every endpoint, event and stream</a>.
+          IDs and tokens above are shortened.
+        </p>
+      </div>
+    </section>
+
+    <!-- Features + status -->
+    <section class="section" id="features">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow">What's inside</p>
+          <h2>What works today, and what comes next.</h2>
+          <p class="section-lede">Nothing on this page is marked as working unless it is written, tested and in the repository.</p>
+          <ul class="legend" aria-label="Legend">
+            <li><span class="pill pill-ok">Works today</span></li>
+            <li><span class="pill pill-wip">In progress</span></li>
+            <li><span class="pill pill-next">Next</span></li>
+            <li><span class="pill pill-plan">Planned</span></li>
+          </ul>
+        </div>
+
+        <div class="features">
+          <div class="feature"><span class="pill pill-ok">Works today</span><h3>Orders API</h3><p>Quotes, idempotent orders, cancellation and status history. Django and PostgreSQL, tested against real database races.</p></div>
+          <div class="feature"><span class="pill pill-ok">Works today</span><h3>Transactional outbox</h3><p>Order changes and their events commit together, then reach Kafka in order. No lost events, no phantom ones.</p></div>
+          <div class="feature"><span class="pill pill-ok">Works today</span><h3>Fleet ingest</h3><p>Authenticated GPS batches from drivers. Under overload it answers 503 with Retry-After instead of falling over.</p></div>
+          <div class="feature"><span class="pill pill-ok">Works today</span><h3>Live fleet state</h3><p>The latest position of every driver in Valkey, geo-indexed for nearest-driver queries, rebuilt from Kafka after a loss.</p></div>
+          <div class="feature"><span class="pill pill-ok">Works today</span><h3>Live tracking</h3><p>Server-sent event streams for one order (customers) or the whole fleet (operators), with a hosted page in English and Japanese.</p></div>
+          <div class="feature"><span class="pill pill-ok">Works today</span><h3>Road routing</h3><p>OSRM on real OpenStreetMap roads for travel times and routes, with a straight-line fallback if it is down.</p></div>
+          <div class="feature"><span class="pill pill-ok">Works today</span><h3>City simulator</h3><p>Merchants, customers and drivers through the public APIs, with repeatable scenarios such as a rainy Friday lunch.</p></div>
+          <div class="feature"><span class="pill pill-ok">Works today</span><h3>SLOs as code</h3><p>Five SLOs with burn-rate alerts, a runbook per alert, Grafana dashboards in git, and a gate that blocks risky releases.</p></div>
+          <div class="feature"><span class="pill pill-wip">In progress</span><h3>Dispatch</h3><p>Nearest-driver offers with timeouts and ETAs for quotes. Greedy first; batched matching comes later.</p></div>
+          <div class="feature"><span class="pill pill-wip">In progress</span><h3>Cloud platform</h3><p>Terraform for AWS (VPC, EKS, Karpenter) and GitOps with Argo CD: written and checked, first cluster run next.</p></div>
+          <div class="feature"><span class="pill pill-next">Next</span><h3>Signed webhooks</h3><p>Every order event pushed to your endpoint, signed, retried, with a dead-letter queue and replay.</p></div>
+          <div class="feature"><span class="pill pill-next">Next</span><h3>Operations dashboard</h3><p>Orders, drivers and the live map behind a login. Manual assignment, API keys and webhook settings.</p></div>
+          <div class="feature"><span class="pill pill-next">Next</span><h3>Driver app</h3><p>Offers, navigation, pickup and proof of delivery on the driver's phone, using the same public API.</p></div>
+          <div class="feature"><span class="pill pill-next">Next</span><h3>Any city</h3><p>Service zones from GeoJSON, any OpenStreetMap region, any currency and tax rule. Today the service area is Tokyo.</p></div>
+          <div class="feature"><span class="pill pill-plan">Planned</span><h3>AI operations copilot</h3><p>Ask "why is this order late?" and get an answer built from read-only tools over orders, dispatch and the fleet.</p></div>
+          <div class="feature"><span class="pill pill-plan">Planned</span><h3>Delivery windows and money</h3><p>Bookable windows (<span lang="ja" class="nowrap">時間帯指定</span>) without overbooking, a double-entry ledger, and weekly driver payouts.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Architecture -->
+    <section class="section section-alt" id="architecture">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow">Architecture</p>
+          <h2>Two systems with different rules.</h2>
+          <p class="section-lede">
+            Orders are few and precious. Locations are many and disposable. Tasuki keeps the two apart, so a flood of
+            GPS points can never stop an order, and the order path never trades correctness for speed.
+          </p>
+        </div>
+
+        <div class="table-wrap">
+          <table class="compare">
+            <thead>
+              <tr><th scope="col"></th><th scope="col">Orders and money</th><th scope="col">Locations and tracking</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">Volume at peak</th><td>Single-digit writes a second, even in a surge</td><td>About 750 GPS updates a second</td></tr>
+              <tr><th scope="row">"Correct" means</th><td>Exactly-once effects: never lost, never charged twice</td><td>Latest wins: a missed point is harmless if the next one arrives</td></tr>
+              <tr><th scope="row">Source of truth</th><td>PostgreSQL, with a transactional outbox</td><td>The Kafka log; Valkey is a cache rebuilt from it</td></tr>
+              <tr><th scope="row">On failure</th><td>Reject or queue, never guess</td><td>Serve the last known position and say how old it is</td></tr>
+              <tr><th scope="row">Language</th><td>Python and Django: rich domain model, transactions</td><td>Go: high throughput, small memory, cheap concurrency</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <figure class="arch">
+          <div class="figure-scroll">
+            <svg class="arch-svg" viewBox="0 0 1000 600" role="img" aria-labelledby="arch-title arch-desc">
+              <title id="arch-title">Tasuki architecture</title>
+              <desc id="arch-desc">Your app creates orders in the orders API, backed by PostgreSQL. An outbox relay publishes order events to Kafka. Driver apps send GPS batches to fleet-ingest, which publishes to Kafka. fleet-state keeps the live fleet in Valkey; dispatch reads it, asks OSRM for travel times and sends offers to drivers; tracking streams positions to customers and the ops console. Signed webhooks to your backend are planned.</desc>
+              <defs>
+                <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M0 0 L10 5 L0 10 z" class="arrow-head"/>
+                </marker>
+              </defs>
+
+              <!-- zones -->
+              <rect class="zone zone-orders" x="210" y="30" width="580" height="180" rx="16"/>
+              <text class="zone-label" x="230" y="56">ORDERS AND MONEY · Python · exactly once</text>
+              <rect class="zone zone-loc" x="210" y="330" width="580" height="250" rx="16"/>
+              <text class="zone-label" x="230" y="572">LOCATIONS AND DISPATCH · Go · latest wins</text>
+
+              <!-- actors -->
+              <g class="node node-actor"><rect x="20" y="80" width="150" height="64" rx="12"/><text x="95" y="108">Your app</text><text class="sub" x="95" y="127">checkout · OMS</text></g>
+              <g class="node node-actor"><rect x="20" y="370" width="150" height="64" rx="12"/><text x="95" y="398">Driver app</text><text class="sub" x="95" y="417">GPS · offers</text></g>
+              <g class="node node-actor node-planned"><rect x="830" y="80" width="150" height="64" rx="12"/><text x="905" y="108">Your backend</text><text class="sub" x="905" y="127">webhooks · next</text></g>
+              <g class="node node-actor"><rect x="830" y="330" width="150" height="64" rx="12"/><text x="905" y="358">Ops console</text><text class="sub" x="905" y="377">live fleet map</text></g>
+              <g class="node node-actor"><rect x="830" y="420" width="150" height="64" rx="12"/><text x="905" y="448">Customer's phone</text><text class="sub" x="905" y="467">tracking page</text></g>
+
+              <!-- orders zone -->
+              <g class="node"><rect x="240" y="80" width="150" height="64" rx="12"/><text x="315" y="108">orders API</text><text class="sub" x="315" y="127">Django · DRF</text></g>
+              <g class="node node-store"><rect x="430" y="80" width="140" height="64" rx="12"/><text x="500" y="108">PostgreSQL</text><text class="sub" x="500" y="127">orders · outbox</text></g>
+              <g class="node"><rect x="610" y="80" width="150" height="64" rx="12"/><text x="685" y="108">outbox relay</text><text class="sub" x="685" y="127">in order, per order</text></g>
+
+              <!-- kafka -->
+              <g class="node node-kafka"><rect x="210" y="246" width="580" height="54" rx="12"/><text x="500" y="270">Kafka</text><text class="sub" x="500" y="289">courier.locations · orders.events · dispatch.events</text></g>
+
+              <!-- location zone row 1 -->
+              <g class="node"><rect x="230" y="370" width="120" height="64" rx="12"/><text x="290" y="398">fleet-ingest</text><text class="sub" x="290" y="417">GPS batches</text></g>
+              <g class="node"><rect x="372" y="370" width="120" height="64" rx="12"/><text x="432" y="398">fleet-state</text><text class="sub" x="432" y="417">latest per driver</text></g>
+              <g class="node"><rect x="514" y="370" width="120" height="64" rx="12"/><text x="574" y="398">dispatch</text><text class="sub" x="574" y="417">offers · ETAs</text></g>
+              <g class="node"><rect x="656" y="370" width="120" height="64" rx="12"/><text x="716" y="398">tracking</text><text class="sub" x="716" y="417">SSE fan-out</text></g>
+              <!-- location zone row 2 -->
+              <g class="node node-store"><rect x="372" y="496" width="262" height="60" rx="12"/><text x="503" y="522">Valkey</text><text class="sub" x="503" y="541">live fleet cache, rebuilt from Kafka</text></g>
+              <g class="node"><rect x="656" y="496" width="120" height="60" rx="12"/><text x="716" y="522">routing</text><text class="sub" x="716" y="541">OSRM · real roads</text></g>
+
+              <!-- edges -->
+              <g class="edges">
+                <path d="M170 112 H238" marker-end="url(#arrow)"/>
+                <path d="M390 112 H428" marker-end="url(#arrow)"/>
+                <path d="M570 112 H608" marker-end="url(#arrow)"/>
+                <path d="M685 144 V244" marker-end="url(#arrow)"/>
+                <path d="M340 246 V146" marker-end="url(#arrow)"/>
+                <path d="M170 402 H228" marker-end="url(#arrow)"/>
+                <path d="M290 370 V302" marker-end="url(#arrow)"/>
+                <path d="M432 300 V368" marker-end="url(#arrow)"/>
+                <path d="M574 300 V368" marker-end="url(#arrow)"/>
+                <path d="M716 300 V368" marker-end="url(#arrow)"/>
+                <path d="M432 434 V494" marker-end="url(#arrow)"/>
+                <path d="M560 496 V436" marker-end="url(#arrow)"/>
+                <path d="M610 434 V470 H716 V494" marker-end="url(#arrow)"/>
+                <path d="M534 434 V462 H95 V436" marker-end="url(#arrow)"/>
+                <path d="M776 392 L828 364" marker-end="url(#arrow)"/>
+                <path d="M776 414 L828 450" marker-end="url(#arrow)"/>
+                <path class="edge-planned" d="M790 273 H810 V112 H828" marker-end="url(#arrow)"/>
+              </g>
+              <g class="edge-labels">
+                <text x="204" y="102" text-anchor="middle">REST</text>
+                <text x="350" y="200" text-anchor="start">dispatch.events</text>
+                <text x="695" y="200" text-anchor="start">orders.events</text>
+                <text x="199" y="392" text-anchor="middle">GPS</text>
+                <text x="100" y="482" text-anchor="start">offers (SSE)</text>
+                <text x="802" y="232" text-anchor="end">signed webhooks</text>
+                <text x="806" y="410" text-anchor="middle">SSE</text>
+              </g>
+            </svg>
+          </div>
+          <figcaption>
+            What runs today, plus the webhooks (dashed) that come next. Every arrow into or out of Kafka is
+            at-least-once, and every consumer deduplicates on <code>event_id</code>.
+            <a href="https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/design.md">Read the full system design</a>.
+          </figcaption>
+        </figure>
+
+        <details class="faq-inline">
+          <summary>Why server-sent events and not WebSockets?</summary>
+          <p>Tracking only flows one way, from the platform to the screen. Server-sent events run over plain HTTP, pass
+            through proxies and load balancers without special setup, and reconnect on their own. Drivers send GPS the
+            other way as small batched HTTPS requests, which survive flaky mobile networks better than a long-lived
+            socket.</p>
+        </details>
+      </div>
+    </section>
+
+    <!-- Scale -->
+    <section class="section" id="scale">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow">Scale</p>
+          <h2>Sized for 1.5 million orders a month in one city.</h2>
+          <p class="section-lede">
+            Every design choice has a number behind it. These are the targets for a busy city operator, with room for a
+            rainy Friday, when demand triples and every customer is watching the map.
+          </p>
+        </div>
+        <div class="stats">
+          <div class="stat"><span class="stat-num">50,000</span><span class="stat-label">orders a day, 12 % of them in the busiest hour</span></div>
+          <div class="stat"><span class="stat-num">20/s</span><span class="stat-label">order capacity: a 3× rain surge with 4× headroom</span></div>
+          <div class="stat"><span class="stat-num">750/s</span><span class="stat-label">GPS updates from 3,000 drivers at peak</span></div>
+          <div class="stat"><span class="stat-num">10,000</span><span class="stat-label">customers watching live at the same time</span></div>
+        </div>
+        <p class="callout">
+          <strong>These are design targets, not measurements yet.</strong> The simulator already has a design-scale
+          rainy-Friday scenario. Load-test results will be published here with the scripts to reproduce them, and not
+          before.
+        </p>
+
+        <div class="grid grid-2 scale-notes">
+          <div>
+            <h3>A surge is a capacity problem, not a throughput problem</h3>
+            <p>At three times normal demand, orders want 18,000 deliveries an hour while drivers can do about 7,200. The
+              servers cope easily; what breaks is the promise. So in a surge Tasuki quotes honestly: longer ETAs, fewer
+              bookable windows, a surge fee. And it stays up.</p>
+          </div>
+          <div>
+            <h3>Built to scale out</h3>
+            <p>Every service is stateless and scales horizontally behind Kubernetes. Kafka is keyed by driver and by order,
+              so each one's events stay in order while consumers spread across partitions. Karpenter adds spot nodes when
+              load rises and removes them after.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Failure -->
+    <section class="section section-alt" id="reliability">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow">When things break</p>
+          <h2>Designed to bend, not fall over.</h2>
+          <p class="section-lede">Every part fails eventually. Each failure below has a planned response, and each one becomes a game-day experiment with a written postmortem.</p>
+        </div>
+        <div class="table-wrap">
+          <table class="failures">
+            <thead>
+              <tr><th scope="col">Failure</th><th scope="col">What your customers see</th><th scope="col">What Tasuki does</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">Valkey (cache) lost</th><td>Nothing on orders or tracking; new assignments pause for seconds</td><td>Tracking reads Kafka, not the cache. fleet-state replays recent locations to rebuild it; dispatch waits for the rebuild.</td></tr>
+              <tr><th scope="row">Kafka unavailable</th><td>Orders still accepted; status updates late</td><td>Outbox rows wait in PostgreSQL and drain later. Ingest sheds load with Retry-After.</td></tr>
+              <tr><th scope="row">Database failover</th><td>Order creation fails for 1 to 2 minutes</td><td>Clients get 503 with Retry-After. Idempotency keys make every retry safe.</td></tr>
+              <tr><th scope="row">Routing (OSRM) down</th><td>ETAs a little less exact</td><td>Dispatch falls back to straight-line distance with a detour factor, and widens quotes.</td></tr>
+              <tr><th scope="row">Rain surge (3× demand)</th><td>Longer ETAs, fewer windows, a surge fee</td><td>Quotes follow driver supply. Priority shedding: orders, then dispatch, then tracking, then history.</td></tr>
+              <tr><th scope="row">One availability zone lost</th><td>Brief retries</td><td>Pods spread over three zones with disruption budgets; Multi-AZ database; Kafka replication factor 3.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Operate -->
+    <section class="section" id="operate">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow">Operate</p>
+          <h2>Run like production from day one.</h2>
+          <p class="section-lede">Written objectives, alerts that point to a runbook, and releases that stop themselves when reliability slips.</p>
+        </div>
+
+        <div class="grid grid-2-1">
+          <div class="table-wrap">
+            <table class="slos">
+              <caption>Service level objectives (28 days, rolling)</caption>
+              <thead><tr><th scope="col">Promise</th><th scope="col">Target</th></tr></thead>
+              <tbody>
+                <tr><td>Quote and order requests succeed</td><td class="num">99.9 %</td></tr>
+                <tr><td>Orders are created in under 300 ms</td><td class="num">95 %</td></tr>
+                <tr><td>GPS points reach live state within 2 s</td><td class="num">99 %</td></tr>
+                <tr><td>Customers see positions younger than 10 s</td><td class="num">99 %</td></tr>
+                <tr><td>A driver accepts within 60 s of confirmation</td><td class="num">95 %</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <ul class="checks">
+            <li><strong>Error budgets with teeth.</strong> Multi-window burn-rate alerts, and a rollout gate that blocks canary releases while a budget is spent.</li>
+            <li><strong>Observability as code.</strong> OpenTelemetry in every service; Prometheus, Loki, Tempo and Grafana dashboards kept in git.</li>
+            <li><strong>Secure supply chain.</strong> Signed images with SBOMs, Trivy and gitleaks in CI, Kyverno admitting only signed images.</li>
+            <li><strong>Least privilege.</strong> No static cloud keys (GitHub OIDC), restricted pod security, personal data encrypted per field.</li>
+            <li><strong>Practised failure.</strong> A runbook for every alert, game-day plans with fault-injection scripts, and a postmortem template.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Deploy -->
+    <section class="section section-alt" id="deploy">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow">Deploy</p>
+          <h2>Start on a laptop. Grow into a cluster.</h2>
+        </div>
+        <div class="grid grid-3">
+          <article class="card card-lg deploy">
+            <span class="pill pill-ok">Works today</span>
+            <h3>One machine</h3>
+            <p>Docker Compose runs PostgreSQL, Kafka, Valkey and every service, then the simulator fills the map.</p>
+            <div class="code code-sm">
+<pre><code data-lang="bash">cp .env.example .env
+make up        # every service, healthy
+make sim-up    # the city starts moving
+open http://localhost:8088</code></pre>
+            </div>
+          </article>
+          <article class="card card-lg deploy">
+            <span class="pill pill-wip">Written, first run next</span>
+            <h3>Kubernetes with GitOps</h3>
+            <p>A Helm chart per service and an Argo CD app of apps, with Kyverno policies, Strimzi Kafka, CloudNativePG
+              with backups, and canary releases through Argo Rollouts.</p>
+          </article>
+          <article class="card card-lg deploy">
+            <span class="pill pill-wip">Written, first run next</span>
+            <h3>AWS in one command</h3>
+            <p>Terraform for the VPC, EKS and Karpenter (spot first). About $8 a day while it runs, and
+              <code>make aws-down</code> takes it back to nearly zero.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- Japan -->
+    <section class="section japan" id="japan">
+      <div class="container japan-grid">
+        <div>
+          <p class="eyebrow">Built in Tokyo</p>
+          <h2>Ready for Japan. <span lang="ja" class="ja-sub">日本の配送にも対応</span></h2>
+          <p class="section-lede">The reference deployment covers Tokyo's 23 wards on real Tokyo roads. Japanese delivery
+            has its own rules, so they are built in from the start.</p>
+        </div>
+        <ul class="checks">
+          <li><strong>Data stays in Japan.</strong> Everything runs in AWS Tokyo; disaster-recovery copies are designed to go only to Osaka.</li>
+          <li><strong>APPI-minded.</strong> Customer names, phones and addresses are encrypted per field and never appear in events or logs.</li>
+          <li><strong>Yen done right.</strong> Integer yen, 10 % consumption tax rounded down once per order (<span lang="ja">端数切り捨て</span>).</li>
+          <li><strong>Bilingual.</strong> The tracking page speaks English and Japanese.</li>
+          <li><strong>Delivery windows.</strong> <span lang="ja">時間帯指定</span> booking without overbooking is on the roadmap.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Roadmap -->
+    <section class="section" id="roadmap">
+      <div class="container">
+        <div class="section-head">
+          <p class="eyebrow">Roadmap</p>
+          <h2>Where Tasuki is going.</h2>
+          <p class="section-lede">Released as semantic versions with a changelog. Follow along on GitHub.</p>
+        </div>
+        <ol class="timeline">
+          <li class="phase phase-now">
+            <span class="phase-tag">Now</span>
+            <h3>Platform and the first slice</h3>
+            <p>Orders, fleet ingest, live tracking, routing, the simulator and the live map; finishing dispatch; the first
+              cluster run on AWS; published load-test numbers; the first game day and postmortem.</p>
+          </li>
+          <li class="phase">
+            <span class="phase-tag">Next</span>
+            <h3>Open it to any business</h3>
+            <p>Service zones, currency and tax for any city; signed webhooks; an operations dashboard; a driver app; and a
+              single-server install for smaller teams.</p>
+          </li>
+          <li class="phase">
+            <span class="phase-tag">Then</span>
+            <h3>AI operations copilot</h3>
+            <p>An assistant that explains late orders and unusual patterns, using read-only tools over orders, dispatch
+              and the fleet.</p>
+          </li>
+          <li class="phase">
+            <span class="phase-tag">Later</span>
+            <h3>Depth</h3>
+            <p>Batched dispatch, delivery windows, an order saga on Temporal, a double-entry ledger with daily
+              reconciliation, and OAuth2 for partners.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section class="section section-alt" id="faq">
+      <div class="container narrow">
+        <div class="section-head">
+          <p class="eyebrow">Questions</p>
+          <h2>Before you ask.</h2>
+        </div>
+        <div class="faq">
+          <details>
+            <summary>Is it free?</summary>
+            <p>Yes. Tasuki is MIT licensed: run it, change it and use it commercially. You pay only for the cloud resources you run it on.</p>
+          </details>
+          <details>
+            <summary>Can I use it outside Tokyo today?</summary>
+            <p>Not yet. The service area, the zones and the pricing are Tokyo's for now. Making them configurable for any city is the first item on the "Next" list.</p>
+          </details>
+          <details>
+            <summary>Do I need Kubernetes?</summary>
+            <p>Not to try it: Docker Compose runs the whole stack on one machine. The production path today is Kubernetes. A single-server production install for smaller teams is on the roadmap.</p>
+          </details>
+          <details>
+            <summary>Where does my data live?</summary>
+            <p>In your own cloud account and the region you choose. Tasuki sends nothing anywhere else.</p>
+          </details>
+          <details>
+            <summary>Is there a driver app?</summary>
+            <p>Not yet. The simulator plays every driver through the same public API a real app will use, so any app can integrate today. A driver app is on the "Next" list.</p>
+          </details>
+          <details>
+            <summary>Is this a real company?</summary>
+            <p>Tasuki is an open-source project, not a delivery company. The merchants, drivers and customers in the demo are generated by the simulator. The software, the infrastructure and the reliability work are real.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="section cta-section" id="contact">
+      <div class="container">
+        <div class="cta-card">
+          <div>
+            <h2>Running deliveries, or about to?</h2>
+            <p>Tell me about your city, your daily order volume and the system you run today. I'd like to hear what
+              Tasuki would need to run your deliveries.</p>
+          </div>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="https://codewithmuh.com/contact">Get in touch</a>
+            <a class="btn btn-ghost" href="https://github.com/codewithmuh/tasuki-delivery-platform/discussions">Start a discussion</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div>
+        <a class="brand" href="#top" aria-label="Tasuki home">
+          <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" class="mark-bg"/><path d="M26 -2 L34 6 L6 34 L-2 26 Z" class="mark-sash"/></svg>
+          <span class="brand-name">Tasuki</span><span class="brand-kanji" lang="ja">襷</span>
+        </a>
+        <p class="fine">Open-source delivery platform. MIT licensed. Built by
+          <a href="https://codewithmuh.com">Muhammad Rashid</a> (<a href="https://youtube.com/@codewithmuh">CodeWithMuh</a>).</p>
+      </div>
+      <nav class="footer-links" aria-label="Documentation">
+        <a href="https://github.com/codewithmuh/tasuki-delivery-platform">Repository</a>
+        <a href="https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/design.md">System design</a>
+        <a href="https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/docs/architecture.md">Architecture</a>
+        <a href="https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/contracts/README.md">API contracts</a>
+        <a href="https://github.com/codewithmuh/tasuki-delivery-platform/tree/main/docs/runbooks">Runbooks</a>
+        <a href="https://github.com/codewithmuh/tasuki-delivery-platform/blob/main/CHANGELOG.md">Changelog</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>
