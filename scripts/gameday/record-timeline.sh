@@ -140,7 +140,9 @@ case "$cmd" in
     require_log
     GD_CONTEXT="$(header context)"
     GD_NAMESPACE="$(header namespace)"
-    [ -n "$GD_CONTEXT" ] && [ -n "$GD_NAMESPACE" ] || gd_die "$log has no context/namespace header"
+    if [ -z "$GD_CONTEXT" ] || [ -z "$GD_NAMESPACE" ]; then
+      gd_die "$log has no context/namespace header"
+    fi
     gd_require_target
     gd_say "taking a snapshot of $GD_NAMESPACE"
     sample="$("$(dirname "${BASH_SOURCE[0]}")/watch-slis.sh" --context "$GD_CONTEXT" --namespace "$GD_NAMESPACE" \

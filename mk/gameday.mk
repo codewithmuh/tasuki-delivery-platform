@@ -4,11 +4,11 @@
 
 SHELLCHECK ?= shellcheck
 GAMEDAY_DIR := scripts/gameday
-GAMEDAY_SCRIPTS := $(wildcard $(GAMEDAY_DIR)/*.sh $(GAMEDAY_DIR)/lib/*.sh)
+GAMEDAY_SCRIPTS := $(wildcard $(GAMEDAY_DIR)/*.sh $(GAMEDAY_DIR)/lib/*.sh $(GAMEDAY_DIR)/local/*.sh)
 
 .PHONY: gameday-lint gameday-test
 
-gameday-lint: ## Game days: bash -n and shellcheck on scripts/gameday (no cluster needed)
+gameday-lint: ## Game days: bash -n and shellcheck on scripts/gameday, including the local (Compose) drills
 	@# The root Makefile requires GNU Make 4 (gmake on macOS); set -e again anyway, as the other mk files do.
 	set -eu -o pipefail; for f in $(GAMEDAY_SCRIPTS); do bash -n "$$f"; done
 	$(SHELLCHECK) --external-sources $(GAMEDAY_SCRIPTS)

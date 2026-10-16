@@ -172,6 +172,22 @@ exception is `record-timeline.sh note`/`mark`, which only appends to a log whose
 Environment variables: `ALLOW_PROD=yes` (required for `tasuki-prod`), `GAMEDAY_LOG` (the drill log; injection
 scripts append their actions to it), `PROM_URL` (use an existing Prometheus URL instead of a port-forward).
 
+### Local drills ([scripts/gameday/local/](../../scripts/gameday/local/))
+
+The cluster is deliberately the last phase of the roadmap, so the first drills run on the local Compose stack
+(`make up`) with the simulator providing traffic and viewers. The services, their code paths and their failure
+handling are the same as in the cluster; what a local drill cannot test is anything Kubernetes or AWS does (pod
+rescheduling, PodDisruptionBudgets, Karpenter, Multi-AZ), and there are no SLO alerts or budgets, because there is no
+Prometheus. The local scripts sample the services' `/metrics` and readiness endpoints directly and write a drill log
+under `docs/gameday/logs/`.
+
+| Script | Local twin of | What it does |
+|---|---|---|
+| `local/redis-loss.sh` | GD-01, `redis-loss.sh` | `--mode restart` stops and restarts the Valkey container (no persistence, so it comes back empty); `--mode flushall` empties it in place. Prints a one-second timeline until fleet-state has rebuilt the cache and dispatch has resumed |
+
+A local result is recorded in the experiment's Results section as **"local (Compose)"**. The cluster run in
+`tasuki-dev` and `tasuki-prod` still happens in phase 7; it is the one that tests alerts and budgets.
+
 ### Dashboards
 
 Generated into `observability/dashboards/generated/` and loaded by the `grafana-dashboards` Application. The plans

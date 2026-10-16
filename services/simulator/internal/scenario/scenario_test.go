@@ -118,6 +118,10 @@ func TestDesignScaleScenarioMatchesTheDesign(t *testing.T) {
 	if s.GPS.MovingInterval != 4*time.Second {
 		t.Errorf("moving GPS interval = %v, want 4s", s.GPS.MovingInterval)
 	}
+	// About 60 % of customers watch (§4), and the cap leaves room for the 10,000 viewers tracking is sized for.
+	if s.Demand.WatchShare != 0.6 || s.Demand.MaxViewers < 10_000 {
+		t.Errorf("watch_share %.2f, max_viewers %d: want 0.6 and at least 10,000", s.Demand.WatchShare, s.Demand.MaxViewers)
+	}
 }
 
 func TestSmallScenarioIsLaptopSized(t *testing.T) {
@@ -150,6 +154,8 @@ demand:
 		"think 2–8 s":         s.Couriers.ThinkTime == DurationRange{Min: 2 * time.Second, Max: 8 * time.Second},
 		"prep 5–15 min":       s.Demand.PrepTime == DurationRange{Min: 5 * time.Minute, Max: 15 * time.Minute},
 		"200 in flight":       s.Demand.MaxInFlight == 200,
+		"nobody watches":      s.Demand.WatchShare == 0,
+		"12,000 viewers max":  s.Demand.MaxViewers == 12000,
 		"GPS 4 s moving":      s.GPS.MovingInterval == 4*time.Second,
 		"GPS 15 s idle":       s.GPS.IdleInterval == 15*time.Second,
 		"real time of day":    s.Clock.Start == nil,
@@ -201,6 +207,8 @@ demand:
   curve: [{ at: "12:00", per_hour: 10 }, { at: "11:00", per_hour: 10 }]
   prep_time: { min: -1m, max: 1m }
   max_in_flight: -3
+  watch_share: 1.5
+  max_viewers: -1
 weather: [{ from: "18:00", to: "17:00", demand_multiplier: -2, speed_multiplier: 5, offline_share: 2 }]
 gps: { moving_interval: -1s, idle_interval: -1s, noise_m: -3 }
 `))
@@ -213,7 +221,7 @@ gps: { moving_interval: -1s, idle_interval: -1s, noise_m: -3 }
 		"ward_radius_m", "merchants must be between 1 and the number of stores (9)", "couriers.count",
 		"scooter_share", "bicycle_kmh", "scooter_kmh", "shifts[0]: start 14:00 must be before end 10:00",
 		"shifts[0]: share", "accept.probability", "halving_distance_m", "think_time", "demand.curve",
-		"prep_time", "max_in_flight", "weather[0]: from 18:00", "weather[0]: demand_multiplier",
+		"prep_time", "max_in_flight", "demand.watch_share", "demand.max_viewers", "weather[0]: from 18:00", "weather[0]: demand_multiplier",
 		"weather[0]: speed_multiplier", "weather[0]: offline_share", "gps.moving_interval",
 		"gps.idle_interval", "gps.noise_m",
 	} {

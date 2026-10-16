@@ -12,6 +12,7 @@ type Config struct {
 	OrdersURL      string // orders service: seeding, quotes, orders, pickup, deliver
 	FleetIngestURL string // GPS batches
 	DispatchURL    string // offer stream, accept and decline
+	TrackingURL    string // customers' tracking streams
 	RoutingURL     string // OSRM; empty means straight lines only
 	AdminToken     string // bearer token for /v1/admin/* (seeding and token re-issue)
 	Addr           string // where /healthz, /readyz and /metrics listen
@@ -32,6 +33,7 @@ func ConfigFromEnv(getenv func(string) string) Config {
 		OrdersURL:       envOr(getenv, "ORDERS_URL", "http://127.0.0.1:8000"),
 		FleetIngestURL:  envOr(getenv, "FLEET_INGEST_URL", "http://127.0.0.1:8081"),
 		DispatchURL:     envOr(getenv, "DISPATCH_URL", "http://127.0.0.1:8082"),
+		TrackingURL:     envOr(getenv, "TRACKING_URL", "http://127.0.0.1:8083"),
 		RoutingURL:      envOr(getenv, "ROUTING_URL", "http://127.0.0.1:5000"),
 		AdminToken:      getenv("ADMIN_TOKEN"),
 		Addr:            ":" + envOr(getenv, "PORT", "8080"),

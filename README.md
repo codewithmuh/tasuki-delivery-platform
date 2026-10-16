@@ -1,4 +1,4 @@
-# Tasuki — a Tokyo delivery platform, built production-grade
+# Tasuki — the open-source delivery platform you run in your own cloud
 
 [![ci](https://github.com/codewithmuh/tasuki-delivery-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/codewithmuh/tasuki-delivery-platform/actions/workflows/ci.yml)
 [![release](https://github.com/codewithmuh/tasuki-delivery-platform/actions/workflows/release.yml/badge.svg)](https://github.com/codewithmuh/tasuki-delivery-platform/actions/workflows/release.yml)
@@ -6,12 +6,17 @@
 
 <img width="2172" height="724" alt="tasuki-github-cover-q75" src="https://github.com/user-attachments/assets/eb94039c-3550-4cec-88b6-6926bb4cea20" />
 
-> **Tasuki is a fictional company.** The merchants, couriers, customers and orders are simulated. The services,
-> the platform on AWS Tokyo, the SLOs, the load tests and the incidents are real.
+Tasuki (襷, the sash that ekiden relay runners hand to each other) is **the delivery side of a business, as software
+you deploy next to your own**. Your system creates a delivery over the API; Tasuki quotes a price and an ETA, finds
+the nearest driver, streams the driver's position live to your customer's phone, and reports every status change
+back. It is open source (MIT), runs in your cloud account, and is built to production standards: idempotent orders,
+a Kafka-backed location pipeline, written SLOs, load tests and game days. It is sized for **1.5 million orders a
+month in one city**.
 
-Tasuki (襷, the sash that ekiden relay runners hand to each other) is a **delivery-as-a-service platform for Tokyo's
-23 wards**. Merchants send delivery requests by API. Tasuki quotes a price and an ETA, assigns a courier, shows the
-courier live on a map, settles the money, and pays couriers every week.
+> **Status: early, and honest about it.** The order, tracking and fleet path runs today; the [roadmap](#status) says
+> what comes next. The reference deployment is **Tokyo's 23 wards on real Tokyo roads**, and the merchants, drivers
+> and customers in it are simulated. Making zones, currency and tax configurable for any city is the next phase
+> ([ADR 0020](docs/adr/0020-service-area-as-configuration.md)). Landing page: [website/](website/).
 
 The repository designs the whole platform and builds a **thin slice through every hard problem** in it:
 
@@ -30,17 +35,21 @@ what is deliberately out of scope.
 
 ## Status
 
-**P1 in progress.** Every P1 service is written and tested in CI and runs locally with one command. The AWS
-platform (Terraform) and the GitOps layer (Argo CD) are written and statically checked, but have not been applied to
-a cluster yet. The template's sample services are gone.
+**Phase 1 of 7: finish and prove.** Every service is written, tested in CI and runs locally with one command. The
+AWS platform (Terraform) and the GitOps layer (Argo CD) are written and statically checked; running them on a real
+cluster is deliberately the **last** phase, once the product is ready for it.
 
 | Phase | Scope | Status |
 |---|---|---|
-| **P1: platform + first slice** | Terraform EKS in Tokyo, Argo CD, observability, SLOs, Go rollout gate; orders, fleet ingest, live tracking, OSRM, city simulator, live map | In progress |
-| **P2: AI ops copilot** | An assistant that explains late orders using read-only tools, served through a separate LLM gateway repo | Planned |
-| **P3: domain depth** | Batched dispatch, Temporal saga, ledger + reconciliation + payouts, delivery windows, partner API + webhooks | Planned |
+| **1. Finish and prove** | Dispatch; the whole order-to-delivery path under load, with published numbers; the first game day | In progress |
+| **2. Any city** | Zones from a GeoJSON file, server-side zone lookup, configurable currency, tax and map region ([ADR 0020](docs/adr/0020-service-area-as-configuration.md)) | Next |
+| **3. Connectable** | Signed webhooks, a dashboard with login (orders, drivers, manual assignment, API keys), an API docs site | Planned |
+| **4. Driver app** | A web app (PWA) first; native later for background GPS | Planned |
+| **5. Easy install** | A single-server setup and a published Helm chart | Planned |
+| **6. AI ops copilot, then depth** | An assistant that explains late orders with read-only tools; then batched dispatch, delivery windows, the Temporal saga, ledger and payouts, partner OAuth2 | Planned |
+| **7. Production on AWS** | The first run of the cluster in `infra/` and `deploy/`, and the game days that need it | Last |
 
-P1, part by part:
+Phase 1, part by part:
 
 | Part | Where | State |
 |---|---|---|

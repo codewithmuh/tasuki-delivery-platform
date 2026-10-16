@@ -128,7 +128,9 @@ if [ "$rollback" = 1 ]; then
   [ -f "$state_file" ] || gd_die "no saved state in $state_file; restore by hand (see --help)"
   saved="$(sed -n 's/^saved=//p' "$state_file")"
   bad="$(sed -n 's/^bad=//p' "$state_file")"
-  [ -n "$saved" ] && [ -n "$bad" ] || gd_die "state file $state_file is incomplete"
+  if [ -z "$saved" ] || [ -z "$bad" ]; then
+    gd_die "state file $state_file is incomplete"
+  fi
   gd_plan "make version $saved of $secret_id AWSCURRENT again (instead of $bad)" "force the ExternalSecret to sync" \
     "${restart:+restart deployment/$restart}"
   gd_confirm

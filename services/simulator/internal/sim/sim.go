@@ -23,6 +23,7 @@ import (
 	"github.com/codewithmuh/tasuki-delivery-platform/services/simulator/internal/metrics"
 	"github.com/codewithmuh/tasuki-delivery-platform/services/simulator/internal/rng"
 	"github.com/codewithmuh/tasuki-delivery-platform/services/simulator/internal/scenario"
+	"github.com/codewithmuh/tasuki-delivery-platform/services/simulator/internal/viewer"
 	"github.com/codewithmuh/tasuki-delivery-platform/services/simulator/scenarios"
 )
 
@@ -144,9 +145,13 @@ func Run(ctx context.Context, cfg Config, sc *scenario.Scenario, opts Options, l
 	courierCtx, stopCouriers := context.WithCancel(context.WithoutCancel(ctx))
 	defer stopCouriers()
 	drain := make(chan struct{})
+	// Viewers watch until the couriers have finished draining, so the last deliveries are seen.
+	viewerCtx, stopViewers := context.WithCancel(context.WithoutCancel(ctx))
+	defer stopViewers()
+	viewers := viewer.NewPool(viewerCtx, clients.NewTracking(cfg.TrackingURL, httpClient, m), sc.Demand.MaxViewers, m, logger)
 
 	var customersWG, couriersWG sync.WaitGroup
-	for _, agent := range newCustomers(sc, st, clk, kit, orders, m, logger) {
+	for _, agent := range newCustomers(sc, st, clk, kit, orders, viewers, m, logger) {
 		customersWG.Go(func() { agent.Run(runCtx) })
 	}
 	for _, c := range newCouriers(cfg, sc, st, clk, kit, toks, orders, httpClient, m, logger) {
@@ -171,13 +176,15 @@ func Run(ctx context.Context, cfg Config, sc *scenario.Scenario, opts Options, l
 		couriersWG.Wait()
 	}
 	customersWG.Wait() // their loops have stopped; this waits for orders still in flight
+	stopViewers()
+	viewers.Wait()
 	logger.Info("simulation stopped")
 	return nil
 }
 
 // newCustomers creates one customer agent per ward.
 func newCustomers(sc *scenario.Scenario, st *State, clk clock.Clock, kit *kitchen, orders *clients.Orders,
-	m *metrics.Metrics, logger *slog.Logger,
+	viewers customer.Viewers, m *metrics.Metrics, logger *slog.Logger,
 ) []*customer.Agent {
 	storesByWard := map[string][]customer.Store{}
 	for _, merchant := range st.Merchants {
@@ -187,7 +194,7 @@ func newCustomers(sc *scenario.Scenario, st *State, clk clock.Clock, kit *kitche
 	}
 	curve, _ := sc.Curve() // the scenario was validated
 	deps := customer.Deps{
-		Orders: orders, Kitchen: kit, Metrics: m, Logger: logger,
+		Orders: orders, Kitchen: kit, Viewers: viewers, Metrics: m, Logger: logger,
 		InFlight: make(chan struct{}, sc.Demand.MaxInFlight),
 	}
 	var agents []*customer.Agent
@@ -203,6 +210,7 @@ func newCustomers(sc *scenario.Scenario, st *State, clk clock.Clock, kit *kitche
 			BBox: scenario.CityBBox(), Share: sc.WardShare(wardID), Stores: stores,
 			Curve: curve, Weather: sc.WeatherEvents(), Clock: clk,
 			PrepMin: sc.Demand.PrepTime.Min, PrepMax: sc.Demand.PrepTime.Max,
+			WatchShare: sc.Demand.WatchShare,
 		}, deps, rng.New(sc.Seed, "customers/"+wardID)))
 	}
 	return agents

@@ -37,6 +37,7 @@ demand:
     - { at: "22:00", per_hour: 20 }
   prep_time: { min: 5m, max: 15m }
   max_in_flight: 50
+  watch_share: 0.6 # customers who keep the tracking page open until delivery (design §4)
 
 gps:
   moving_interval: 4s

@@ -15,6 +15,7 @@ env:
   ORDERS_URL: http://orders
   FLEET_INGEST_URL: http://fleet-ingest
   DISPATCH_URL: http://dispatch
+  TRACKING_URL: http://tracking
   ROUTING_URL: http://routing
   SHUTDOWN_TIMEOUT: 20s
   DRAIN_TIMEOUT: 60s

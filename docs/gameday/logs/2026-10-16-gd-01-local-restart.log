@@ -1,0 +1,33 @@
+# GD-01 local, mode=restart, started 2026-10-16T11:38:12Z
+steady state: couriers in geo index 121, dispatch paused 0, fleet-state rebuilds so far 1
+
+   t  valkey  marker  couriers  fs-ready  dispatch-ready  paused  tracking-events  orders-created  orders-5xx
+T+0s inject: docker compose stop redis (down for 20s)
+   4  down    -       -         no        no              0                    +1              +0          +0
+   9  down    -       -         no        no              0                    +2              +0          +0
+  13  down    -       -         no        no              0                    +3              +2          +0
+  16  down    -       -         no        no              0                    +4              +2          +0
+  19  down    -       -         no        no              0                    +4              +3          +0
+T+20s docker compose start redis (empty: no persistence)
+  21  up      0       121       yes       yes             0                    +5              +3          +0
+  23  up      1       121       yes       no              1                    +5              +3          +0
+  24  up      1       121       yes       no              1                    +6              +3          +0
+  25  up      1       121       yes       no              1                    +6              +3          +0
+  27  up      1       121       yes       no              1                    +6              +3          +0
+  28  up      1       121       yes       no              1                    +7              +3          +0
+  30  up      1       121       yes       no              1                    +7              +3          +0
+  31  up      1       121       yes       no              1                    +7              +3          +0
+  33  up      1       121       yes       no              1                    +8              +3          +0
+  34  up      1       121       yes       yes             0                    +8              +3          +0
+
+## Result
+valkey answering again:            21 s after the injection
+fleet:state:rebuilt_at back:       23 s after the injection
+fleet-state and dispatch ready:    34 s after the injection
+dispatch paused at some point:     yes
+fleet-state rebuilds:              +1
+couriers in the geo index now:     121
+tracking events sent meanwhile:    +8   (hypothesis: keeps rising, tracking never reads Valkey)
+orders created meanwhile:          +3   (hypothesis: keeps rising, orders never reads Valkey)
+orders API 5xx meanwhile:          +0   (hypothesis: 0)
+log: docs/gameday/logs/2026-10-16-gd-01-local-restart.log

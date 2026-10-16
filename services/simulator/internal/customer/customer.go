@@ -35,6 +35,11 @@ type Kitchen interface {
 	Prepare(orderID string, readyAt time.Time)
 }
 
+// Viewers opens the tracking page for an order, in the background. *viewer.Pool implements it.
+type Viewers interface {
+	Watch(orderID, trackingURL string)
+}
+
 // Store is a store customers can order from, with its merchant's API key.
 type Store struct {
 	ID     string
@@ -55,12 +60,16 @@ type Config struct {
 	Clock    clock.Clock
 	PrepMin  time.Duration
 	PrepMax  time.Duration
+	// WatchShare is the fraction of customers who open the tracking page and keep it open
+	// until delivery (0 = nobody watches).
+	WatchShare float64
 }
 
 // Deps are shared by every ward.
 type Deps struct {
 	Orders  Orders
 	Kitchen Kitchen
+	Viewers Viewers // nil: nobody watches
 	Metrics *metrics.Metrics
 	Logger  *slog.Logger
 	// InFlight is a semaphore shared by all wards: its capacity is the most orders that may be
@@ -97,6 +106,7 @@ type order struct {
 	store   Store
 	dropoff clients.Dropoff
 	prep    time.Duration
+	watch   bool // the customer opens the tracking page
 }
 
 // Run places orders until ctx ends, then waits for the orders already in flight to finish
@@ -153,7 +163,7 @@ func (a *Agent) waitUntil(ctx context.Context, due time.Time) bool {
 func (a *Agent) draw() order {
 	a.seq++
 	point := a.cfg.BBox.Clamp(geo.RandomInDisc(a.rng, a.cfg.Centre, a.cfg.RadiusM))
-	return order{
+	o := order{
 		store: a.cfg.Stores[a.rng.IntN(len(a.cfg.Stores))],
 		prep:  a.cfg.PrepMin + time.Duration(a.rng.Float64()*float64(a.cfg.PrepMax-a.cfg.PrepMin)),
 		dropoff: clients.Dropoff{
@@ -165,6 +175,11 @@ func (a *Agent) draw() order {
 			CustomerPhone: fmt.Sprintf("090-0000-%04d", a.seq%10000),
 		},
 	}
+	// Only drawn when someone may watch, so scenarios without viewers keep their random sequence.
+	if a.cfg.WatchShare > 0 {
+		o.watch = a.rng.Float64() < a.cfg.WatchShare
+	}
+	return o
 }
 
 // place gets a quote and turns it into an order.
@@ -190,6 +205,9 @@ func (a *Agent) place(ctx context.Context, o order) {
 		m.OrdersReplayed.Inc()
 	}
 	a.deps.Kitchen.Prepare(created.ID, time.Now().Add(a.cfg.Clock.Scale(o.prep)))
+	if o.watch && a.deps.Viewers != nil {
+		a.deps.Viewers.Watch(created.ID, created.TrackingURL)
+	}
 	a.log.Debug("order created", "order_id", created.ID, "fee_yen", created.FeeYen, "eta_seconds", quote.ETASeconds)
 }
 

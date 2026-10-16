@@ -48,3 +48,24 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: "1"
+
+  scripts:
+    name: Scripts (game days, load tests)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: bash -n and ShellCheck (the runner's ShellCheck)
+        run: |
+          shellcheck --version
+          scripts=(scripts/gameday/*.sh scripts/gameday/lib/*.sh scripts/gameday/local/*.sh scripts/loadtest/*.sh)
+          for f in "${scripts[@]}"; do bash -n "$f"; done
+          shellcheck --external-sources "${scripts[@]}"
+      - name: Game-day script guards (empty kubeconfig, no cluster)
+        run: scripts/gameday/test-guards.sh
+      - name: Load-test reporter (ruff, as pre-commit runs it)
+        run: |
+          pipx run ruff==0.17.0 check scripts/loadtest
+          pipx run ruff==0.17.0 format --check scripts/loadtest
+          python3 scripts/loadtest/report.py --help >/dev/null

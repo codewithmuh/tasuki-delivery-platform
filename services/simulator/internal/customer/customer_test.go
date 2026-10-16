@@ -69,7 +69,7 @@ func (f *fakeOrders) CreateOrder(_ context.Context, _, quoteID, key string) (cli
 	p := f.pending[quoteID]
 	p.key = key
 	f.orders = append(f.orders, p)
-	return clients.Order{ID: "ord_" + key, Replayed: f.replayed}, nil
+	return clients.Order{ID: "ord_" + key, Replayed: f.replayed, TrackingURL: "http://localhost:8088/track/tok_" + key}, nil
 }
 
 type fakeKitchen struct {
@@ -96,23 +96,47 @@ func flat(t *testing.T, perHour float64) demand.Curve {
 	return c
 }
 
+type fakeViewers struct {
+	mu      sync.Mutex
+	watched map[string]string // order ID → tracking URL
+}
+
+func (v *fakeViewers) Watch(orderID, trackingURL string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.watched == nil {
+		v.watched = map[string]string{}
+	}
+	v.watched[orderID] = trackingURL
+}
+
 type setup struct {
 	orders  *fakeOrders
 	kitchen *fakeKitchen
+	viewers *fakeViewers
 	metrics *metrics.Metrics
 	agent   *Agent
 }
 
 func newSetup(t *testing.T, perHour float64, seed uint64, inFlight int) *setup {
-	s := &setup{orders: &fakeOrders{}, kitchen: &fakeKitchen{}, metrics: metrics.New(prometheus.NewRegistry())}
+	return newWatchedSetup(t, perHour, seed, inFlight, 0)
+}
+
+func newWatchedSetup(t *testing.T, perHour float64, seed uint64, inFlight int, watchShare float64) *setup {
+	s := &setup{
+		orders: &fakeOrders{}, kitchen: &fakeKitchen{}, viewers: &fakeViewers{},
+		metrics: metrics.New(prometheus.NewRegistry()),
+	}
 	s.agent = New(Config{
 		WardID: "shibuya", WardName: "Shibuya", Centre: centre, RadiusM: 1500, BBox: box, Share: 0.5,
 		Stores:  []Store{{ID: "str_1", APIKey: "key_a"}, {ID: "str_2", APIKey: "key_b"}},
 		Curve:   flat(t, perHour),
 		Clock:   clock.New(time.Now(), 12*time.Hour, 10),
 		PrepMin: 5 * time.Minute, PrepMax: 15 * time.Minute,
+		WatchShare: watchShare,
 	}, Deps{
-		Orders: s.orders, Kitchen: s.kitchen, Metrics: s.metrics, InFlight: make(chan struct{}, inFlight),
+		Orders: s.orders, Kitchen: s.kitchen, Viewers: s.viewers, Metrics: s.metrics,
+		InFlight: make(chan struct{}, inFlight),
 	}, rand.New(rand.NewPCG(seed, 1)))
 	return s
 }
@@ -270,6 +294,34 @@ func TestNoDemandNoOrders(t *testing.T) {
 		s.runFor(time.Hour)
 		if s.orders.quotes != 0 {
 			t.Errorf("%d quotes with zero demand", s.orders.quotes)
+		}
+	})
+}
+
+func TestAShareOfCustomersWatchTheirDelivery(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s := newWatchedSetup(t, 7200, 7, 100, 0.6)
+		s.runFor(10 * time.Minute)
+
+		n := len(s.orders.orders)
+		watched := len(s.viewers.watched)
+		if share := float64(watched) / float64(n); share < 0.5 || share > 0.7 {
+			t.Fatalf("%d of %d customers watched (%.2f), want about 0.6", watched, n, share)
+		}
+		for id, url := range s.viewers.watched {
+			if url != "http://localhost:8088/track/tok_"+id[len("ord_"):] {
+				t.Errorf("order %s watched with tracking URL %q", id, url)
+			}
+		}
+	})
+}
+
+func TestNobodyWatchesWithAZeroShare(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s := newSetup(t, 3600, 11, 100)
+		s.runFor(5 * time.Minute)
+		if len(s.orders.orders) == 0 || len(s.viewers.watched) != 0 {
+			t.Fatalf("%d orders, %d watched: want orders and nobody watching", len(s.orders.orders), len(s.viewers.watched))
 		}
 	})
 }

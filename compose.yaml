@@ -310,6 +310,7 @@ services:
       ORDERS_URL: http://orders:8000
       FLEET_INGEST_URL: http://fleet-ingest:8080
       DISPATCH_URL: http://dispatch:8080
+      TRACKING_URL: http://tracking:8080 # customers who watch their delivery (demand.watch_share)
       ROUTING_URL: http://routing:5000 # unreachable without the routing profile: couriers ride straight lines
       ADMIN_TOKEN: ${ADMIN_TOKEN:?copy .env.example to .env}
       DRAIN_TIMEOUT: 15s
@@ -320,6 +321,7 @@ services:
       orders: { condition: service_healthy }
       fleet-ingest: { condition: service_healthy }
       dispatch: { condition: service_healthy }
+      tracking: { condition: service_healthy }
       routing: { condition: service_healthy, required: false }
 
 volumes:
