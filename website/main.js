@@ -94,6 +94,76 @@
     });
   });
 
+  // Sound: off until the visitor turns it on. Browsers only let a page play audio after a click, tap or key
+  // press, so the toggle is that gesture. Every sound is synthesised with the Web Audio API: no audio files.
+  const sound = (() => {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    let ctx = null;
+    let out = null;
+    let on = false;
+
+    // Must run inside a user gesture the first time, or the browser keeps the context suspended.
+    const start = () => {
+      if (!AudioCtx || !on) return;
+      if (!ctx) {
+        ctx = new AudioCtx();
+        out = ctx.createGain();
+        out.gain.value = 0.7;
+        out.connect(ctx.destination);
+      }
+      if (ctx.state === "suspended") ctx.resume();
+    };
+
+    // One soft note: a quick attack and an exponential fade, so nothing clicks or drones.
+    const note = (freq, at, dur, gain = 0.07, type = "sine", glideTo = 0) => {
+      const t = ctx.currentTime + at;
+      const osc = ctx.createOscillator();
+      const env = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, t);
+      if (glideTo) osc.frequency.exponentialRampToValueAtTime(glideTo, t + dur);
+      env.gain.setValueAtTime(0.0001, t);
+      env.gain.exponentialRampToValueAtTime(gain, t + 0.012);
+      env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      osc.connect(env);
+      env.connect(out);
+      osc.start(t);
+      osc.stop(t + dur + 0.05);
+    };
+
+    // Notes from the C major pentatonic scale, so sounds that overlap never clash.
+    const SOUNDS = {
+      welcome: () => [392, 523.25, 659.25, 783.99].forEach((f, i) => note(f, i * 0.08, 0.6, 0.05, "triangle")),
+      ping: () => note(1480, 0, 0.16, 0.025, "sine", 1180), // a GPS point arrives
+      confirmed: () => note(523.25, 0, 0.45, 0.05),
+      assigned: () => [587.33, 880].forEach((f, i) => note(f, i * 0.12, 0.5)),
+      picked_up: () => [659.25, 783.99, 880].forEach((f, i) => note(f, i * 0.1, 0.55)),
+      delivered: () => [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => note(f, i * 0.1, 1.1, 0.06, "triangle")),
+    };
+
+    return {
+      supported: Boolean(AudioCtx),
+      get on() {
+        return on;
+      },
+      enable() {
+        on = true;
+        start();
+      },
+      disable() {
+        on = false;
+        if (ctx) ctx.suspend();
+      },
+      arm() {
+        on = true; // on, but silent until start() runs inside the visitor's first gesture
+      },
+      start,
+      play(name) {
+        if (on && ctx) SOUNDS[name]();
+      },
+    };
+  })();
+
   // Hero: a driver rides to the store, picks up, and delivers while the tracking card follows the
   // same stream events a real tracking page receives (status, position, end).
   const route = document.getElementById("route-done");
@@ -134,6 +204,7 @@
   const STEP_INDEX = { confirmed: 0, assigned: 1, picked_up: 2, delivered: 3 };
   let shown = { status: null, eta: null, pos: null };
   let lastPosAt = -Infinity;
+  let lastPingAt = -Infinity;
 
   function render(ms, now) {
     const f = frame(ms);
@@ -154,6 +225,7 @@
       });
       tickStatus.innerHTML = `<span class="k">event:</span> status <span class="v">{"status":"${f.status}"}</span>`;
       shown.status = f.status;
+      sound.play(f.status);
     }
     // Positions arrive in batches, not every frame, just like the real stream.
     if (now - lastPosAt > 700 || shown.pos === null) {
@@ -163,6 +235,11 @@
       if (pos !== shown.pos) {
         tickPos.innerHTML = `<span class="k">event:</span> position <span class="v">${pos}</span>`;
         shown.pos = pos;
+        // A soft ping for every other GPS update: often enough to feel live, rarely enough not to nag.
+        if (now - lastPingAt > 1300) {
+          sound.play("ping");
+          lastPingAt = now;
+        }
       }
       lastPosAt = now;
     }
@@ -171,6 +248,50 @@
   if (reducedMotion) {
     render(9500, 0);
     return;
+  }
+
+  // The sound toggle only appears when the map moves (no reduced motion) and the browser has Web Audio.
+  const soundBtn = document.querySelector(".sound-toggle");
+  if (soundBtn && sound.supported) {
+    const label = soundBtn.querySelector(".sound-label");
+    const show = (on) => {
+      soundBtn.setAttribute("aria-pressed", String(on));
+      label.textContent = on ? "Sound on" : "Turn on sound";
+    };
+    const save = (value) => {
+      try {
+        localStorage.setItem("tasuki-sound", value);
+      } catch {
+        // private mode or blocked storage: the choice just isn't remembered
+      }
+    };
+    let saved = null;
+    try {
+      saved = localStorage.getItem("tasuki-sound");
+    } catch {
+      saved = null;
+    }
+    if (saved === "on") {
+      // Remembered from a previous visit. Audio still waits for this visit's first click, tap or key press.
+      sound.arm();
+      show(true);
+      const wake = () => sound.start();
+      document.addEventListener("pointerdown", wake, { once: true });
+      document.addEventListener("keydown", wake, { once: true });
+    }
+    soundBtn.addEventListener("click", () => {
+      if (sound.on) {
+        sound.disable();
+        show(false);
+        save("off");
+      } else {
+        sound.enable();
+        sound.play("welcome");
+        show(true);
+        save("on");
+      }
+    });
+    soundBtn.hidden = false;
   }
 
   let start = null;

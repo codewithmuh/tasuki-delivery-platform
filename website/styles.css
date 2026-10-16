@@ -606,7 +606,55 @@ code {
 .hero-visual {
   position: relative;
   margin: 0;
-  padding-bottom: 36px;
+  padding-bottom: 56px;
+}
+
+.sound-toggle {
+  position: absolute;
+  left: 0;
+  bottom: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px 7px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.sound-toggle[hidden] {
+  display: none;
+}
+
+.sound-toggle:hover {
+  color: var(--ink);
+  border-color: var(--ink-3);
+}
+
+.sound-toggle[aria-pressed="true"] {
+  color: var(--shu-text);
+  border-color: var(--shu);
+}
+
+.sound-icon {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sound-toggle[aria-pressed="true"] .mute,
+.sound-toggle[aria-pressed="false"] .waves {
+  display: none;
 }
 
 .map-card {
@@ -913,6 +961,11 @@ code {
     right: auto;
     width: auto;
     margin: -28px 12px 0;
+  }
+
+  .sound-toggle {
+    position: static;
+    margin: 14px 12px 0;
   }
 
   .ticker {

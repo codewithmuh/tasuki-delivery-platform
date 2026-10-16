@@ -8,7 +8,7 @@ dependencies, so any static host can serve this folder as it is.
 |---|---|
 | `index.html` | The page. Every section, the hero map and the architecture diagram are inline SVG |
 | `styles.css` | Light and dark themes (follows the visitor's system setting); code blocks stay dark in both |
-| `main.js` | Mobile menu, code tabs, copy buttons, syntax colouring and the hero animation. The page reads fine without it |
+| `main.js` | Mobile menu, code tabs, copy buttons, syntax colouring, the hero animation and its sound (off until the visitor turns it on; browsers block audio before a click). The page reads fine without it |
 | `favicon.svg` | The mark: an indigo square with the vermilion sash |
 
 ## Preview
