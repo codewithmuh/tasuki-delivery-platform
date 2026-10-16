@@ -594,7 +594,8 @@ def main(argv: list[str] | None = None) -> int:
     md = report(window, args.label, args.scenario, stats, samples)
     if args.out:
         with open(args.out, "w", encoding="utf-8") as f:
-            f.write(md + "\n")
+            # Exactly one newline at the end, as the end-of-file-fixer hook wants.
+            f.write(md.rstrip("\n") + "\n")
         print(f"\nReport written to {args.out}")
     else:
         print("\n" + md)

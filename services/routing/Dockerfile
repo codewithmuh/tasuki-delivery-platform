@@ -56,10 +56,13 @@ RUN file="kanto-${OSM_SNAPSHOT}.osm.pbf" \
 # keeps the door open to live traffic weights without rebuilding the whole graph.
 FROM ghcr.io/project-osrm/osrm-backend:v26.10.0-debian AS graph
 COPY --from=osm /work/tokyo-23.osm.pbf /work/osm-snapshot.txt /data/
+# osrm-extract writes tokyo-23.osrm.fileIndex as 0700 (owner only), so the non-root runtime user
+# below could not open it ("fileIndex mapping failed: Permission denied"); make everything readable.
 RUN osrm-extract --profile /opt/bicycle.lua /data/tokyo-23.osm.pbf \
  && osrm-partition /data/tokyo-23.osrm \
  && osrm-customize /data/tokyo-23.osrm \
- && rm /data/tokyo-23.osm.pbf
+ && rm /data/tokyo-23.osm.pbf \
+ && chmod -R a+rX /data
 
 # ---- runtime: the same OSRM image (osrm-routed and its libraries) plus only the graph ----
 FROM ghcr.io/project-osrm/osrm-backend:v26.10.0-debian
@@ -75,8 +78,8 @@ LABEL org.opencontainers.image.title="tasuki-routing" \
       io.tasuki.osm.bbox="${BBOX}" \
       io.tasuki.osm.attribution="© OpenStreetMap contributors (ODbL 1.0)"
 COPY --from=graph /data/ /data/
-# A numeric non-root user, so Kubernetes' runAsNonRoot can verify it. The graph files are
-# world-readable and never written, so the user needs no home directory or ownership.
+# A numeric non-root user, so Kubernetes' runAsNonRoot can verify it. The graph files are made
+# world-readable in the graph stage and never written, so the user needs no home directory or ownership.
 USER 65532:65532
 EXPOSE 5000
 # The image has no curl: bash's /dev/tcp sends a minimal HTTP request to the nearest-road API.

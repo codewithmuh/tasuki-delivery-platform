@@ -1,8 +1,8 @@
 # Game days
 
-- Status: **Plans and scripts only. No drill has been run yet.**
+- Status: **First drill run locally: [GD-01](experiments/01-redis-loss.md#results) on 2026-10-16 (Compose). No cluster drill yet.**
 - Owner: Muhammad Rashid ([@codewithmuh](https://github.com/codewithmuh))
-- Last updated: 2026-10-14
+- Last updated: 2026-10-16
 
 > Every "Results" section in [experiments/](experiments/) is an empty placeholder until the drill has actually been
 > run. Timelines, numbers and postmortems are written afterwards, from the drill log, never before.

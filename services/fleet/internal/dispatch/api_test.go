@@ -238,3 +238,22 @@ func TestETARejectsBadQueries(t *testing.T) {
 		t.Fatalf("redis down: %d", code)
 	}
 }
+
+func TestETAFailsFastForAWhileAfterRedisFails(t *testing.T) {
+	w := newWorld(t)
+	r := w.replica("")
+	w.mr.SetError("LOADING")
+	if code, _, _ := getETA(t, r.url+etaQuery); code != http.StatusServiceUnavailable {
+		t.Fatalf("redis down: %d", code)
+	}
+	// Redis is back, but for etaRedisOpenFor dispatch answers 503 without asking it.
+	w.mr.SetError("")
+	if code, body, took := getETA(t, r.url+etaQuery); code != http.StatusServiceUnavailable ||
+		errorCode(body) != "unavailable" || took > 50*time.Millisecond {
+		t.Fatalf("within the open window: %d %v after %v, want a fast 503", code, body, took)
+	}
+	w.clock.Advance(etaRedisOpenFor)
+	if code, body, _ := getETA(t, r.url+etaQuery); code != http.StatusOK {
+		t.Fatalf("after the window: %d %v, want 200", code, body)
+	}
+}

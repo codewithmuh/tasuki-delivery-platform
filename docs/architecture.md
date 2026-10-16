@@ -69,7 +69,7 @@ flowchart LR
 | `tracking` | Server-sent events: one order for customers, the whole fleet for the console; reads Kafka, never Valkey | Go | 〃 | :8080 |
 | `dispatch` | P1 greedy matching: ETAs for quotes, offers to couriers over SSE, `dispatch.events` | Go | 〃 | :8080 |
 | `routing` | Road travel times and routes on Tokyo's 23 wards (bicycle profile, MLD) | OSRM v26.10 | [services/routing](../services/routing/) | :5000 (see exceptions) |
-| `simulator` | Deterministic city: seeds tenants and couriers, Poisson demand, couriers riding OSRM routes, weather | Go | [services/simulator](../services/simulator/) | :8080 |
+| `simulator` | Deterministic city: seeds tenants and couriers, Poisson demand, couriers riding OSRM routes, weather, customers watching their tracking page | Go | [services/simulator](../services/simulator/) | :8080 |
 | `console` | Dispatcher's live map (`/`) and customer tracking page (`/track/:token`), EN/JA | React, TypeScript, MapLibre, nginx-unprivileged | [services/console](../services/console/) | :8080 (see exceptions) |
 | `rollout-gate` | Answers "may this service start a canary?" from its SLO error budget | Go | [tools/rollout-gate](../tools/rollout-gate/) | :8080 |
 

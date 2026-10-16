@@ -1,0 +1,28 @@
+# GD-01 local, mode=flushall, started 2026-10-16T11:53:59Z
+steady state: couriers in geo index 121, dispatch paused 0, fleet-state rebuilds so far 2, dispatch recoveries so far 1
+
+   t  valkey  marker  couriers  fs-ready  dispatch-ready  paused  tracking-events  orders-created  orders-5xx
+T+0s inject: FLUSHALL
+   1  up      0       12        yes       yes             0                    +4              +0          +0
+   2  up      0       66        yes       no              1                   +20              +0          +0
+   4  up      0       103       yes       no              1                   +34              +0          +0
+   5  up      1       121       yes       no              1                   +43              +0          +0
+   7  up      1       121       yes       no              1                   +63              +0          +0
+   8  up      1       121       yes       no              1                   +74              +0          +0
+  10  up      1       121       yes       no              1                   +86              +0          +0
+  11  up      1       121       yes       no              1                  +103              +0          +0
+  13  up      1       121       yes       no              1                  +113              +0          +0
+  14  up      1       121       yes       yes             0                  +131              +0          +0
+
+## Result
+valkey answering again:            1 s after the injection
+fleet:state:rebuilt_at back:       5 s after the injection
+both services recovered:           14 s after the injection
+dispatch paused at some point:     yes
+fleet-state rebuilds:              +1
+dispatch recoveries:               +1
+couriers in the geo index now:     121
+tracking events sent meanwhile:    +131   (hypothesis: keeps rising, tracking never reads Valkey)
+orders created meanwhile:          +0   (hypothesis: keeps rising, orders never reads Valkey)
+orders API 5xx meanwhile:          +0   (hypothesis: 0)
+log: docs/gameday/logs/2026-10-16-gd-01-local-flushall.log

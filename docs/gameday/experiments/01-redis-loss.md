@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Planned, not run** |
+| Status | **Run locally (Compose) on 2026-10-16**; cluster run planned for roadmap phase 7 |
 | Design | [§10](../../design.md#10-failure-modes-and-degradation) "Redis lost"; §7.2 step 5 |
 | SLOs at stake | fleet-state location freshness (99 % ≤ 2 s); tracking freshness (99 % < 10 s, should not move); dispatch assignment speed (95 % ≤ 60 s, once dispatch runs) |
 | Environments | `tasuki-dev` first, then `tasuki-prod` (`FleetCacheUnavailable` selects prod) |
@@ -67,8 +67,9 @@ When the cache loses all its data:
   ```
 
 - Couriers are reporting: `fleet_ingest_points_total{result="accepted"}` is rising.
-- **A fleet-stream viewer is connected**, otherwise tracking has no viewers, sends no events, and hypothesis 1 cannot
-  be checked (the simulator places orders but does not open tracking streams). Open one, without printing the token:
+- **A fleet-stream viewer is connected.** The simulator's customers open order tracking streams
+  (`demand.watch_share`), which already show whether tracking keeps sending during the drill, but hypothesis 1 is
+  about the fleet stream too, which only the ops console opens. Open one, without printing the token:
 
   ```bash
   kubectl --context tasuki -n tasuki-dev port-forward svc/tracking 8083:80 &
@@ -156,28 +157,46 @@ is wrong, missing or slow.
 
 ## Results
 
-<!-- fill in after the drill -->
+### Local (Compose), 2026-10-16
 
 | | |
 |---|---|
-| Date and window (JST) | <!-- fill in after the drill --> |
-| Environment, variant | <!-- fill in after the drill --> |
-| Driver / observer / scribe | <!-- fill in after the drill --> |
-| Drill log | <!-- link to docs/gameday/logs/... --> |
-| Hypothesis held? | <!-- yes / no / partly, per numbered point --> |
+| Date and window (JST) | 2026-10-16 20:36–20:55 |
+| Environment, variant | Local Compose stack on one laptop; variant A (`restart`, Valkey down 20 s) twice, before and after fixes; variant B (`flushall`) once |
+| Driver / observer / scribe | Claude, for Muhammad Rashid |
+| Drill log | [first run](../logs/2026-10-16-gd-01-local-restart.log), [re-run](../logs/2026-10-16-gd-01-local-restart-rerun.log), [FLUSHALL](../logs/2026-10-16-gd-01-local-flushall.log); SLIs: [first run](../logs/2026-10-16-gd-01-local-slis.md), [re-run](../logs/2026-10-16-gd-01-local-rerun-slis.md) |
+| Hypothesis held? | 1 yes · 2 partly (no order failed, but quotes slowed) · 3 yes · 4 yes · 5 not checkable (see surprises) |
 
 | Signal | Expected | Observed |
 |---|---|---|
-| Valkey back (s after inject) | ≈ 30 | <!-- fill in after the drill --> |
-| Marker back (s after Valkey Ready) | ≤ 60 | <!-- fill in after the drill --> |
-| Couriers in `geo:couriers:all`, before / after | about equal | <!-- fill in after the drill --> |
-| Location freshness, lowest 5 m value | brief dip | <!-- fill in after the drill --> |
-| Tracking freshness, lowest 5 m value | unchanged | <!-- fill in after the drill --> |
-| Alerts that fired | none expected for a short loss | <!-- fill in after the drill --> |
-| Budget remaining before / after (prod) | | <!-- fill in after the drill --> |
+| Valkey back (s after inject) | ≈ 30 (pod) | 21 (container restart after a 20 s stop); 1 for FLUSHALL |
+| Marker back (s after Valkey back) | ≤ 60 | 2 (restart), 5 (FLUSHALL: the sweeper interval) |
+| fleet-state rebuild | a few seconds | 9,060 records in 164 ms |
+| dispatch | pauses, rebuilds, resumes | paused, resumed 10.9 s and 9.5 s after noticing the loss |
+| Couriers in `geo:couriers:all`, before / after | about equal | 121 / 121 |
+| Location freshness | brief dip | 32.77 % within 2 s for the 10 s after Valkey came back, then 100 %; 96.49 % over the 9-minute window |
+| Tracking freshness | unchanged | 100 % under 10 s; events kept flowing during the outage |
+| Orders | unchanged | 0 of 78 requests failed; **quotes p95 202 ms, p99 280 ms** (normally about 20 ms) |
+| Alerts that fired | none expected for a short loss | none (no alerting stack locally) |
+| Budget remaining before / after (prod) | | not applicable locally |
 
-Surprises: <!-- fill in after the drill -->
+Surprises:
 
-Action items: <!-- fill in after the drill: issue links -->
+1. Every quote during the outage waited dispatch's whole 250 ms ETA budget, because `GET /v1/eta` tried Redis
+   first every time. Fixed: after a Redis failure it answers 503 at once for 5 s (re-run: 0.03 ms after the first).
+2. go-redis printed 289 plain-text lines in 20 s, breaking the JSON-logs contract. Fixed: its logger now writes JSON
+   at debug level (re-run: 0 lines).
+3. The drill script could declare recovery before dispatch noticed the loss. Fixed: it now waits for fleet-state's
+   rebuild counter and dispatch's recovery counter to rise (proven by the FLUSHALL variant).
+4. The steady state (`normal-weekday` at 15:00, 121 couriers over 23 wards) already had a poor dispatch SLI before
+   the injection, so hypothesis 5 could not be checked. Re-run with a dense scenario.
 
-Postmortem: <!-- link, or "not required" with the reason -->
+Action items: see the postmortem.
+
+Postmortem: [2026-10-16-gd-01-local-redis-loss](../../postmortems/2026-10-16-gd-01-local-redis-loss.md) (required:
+hypothesis 2 was partly wrong and the drill found defects).
+
+### Cluster (`tasuki-dev`, then `tasuki-prod`)
+
+Not run yet: the cluster is roadmap phase 7. Record it in the same shape as the local results above, adding the
+alerts that fired and the budget before and after.

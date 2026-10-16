@@ -3,8 +3,7 @@
 Blameless write-ups of incidents and of game days that taught us something. Start each one from
 [TEMPLATE.md](TEMPLATE.md) and name it `YYYY-MM-DD-<short-slug>.md` (the date it started, JST).
 
-**There are no postmortems yet.** No incident has happened and no game day has been run. Postmortems are written
-after the event, from the drill log or the incident record, never in advance.
+Postmortems are written after the event, from the drill log or the incident record, never in advance.
 
 ## When one is required
 
@@ -41,4 +40,4 @@ so readers see both. A postmortem that comes from a game day says so in its firs
 
 | Date | Postmortem | Trigger | Services | Budget burned |
 |---|---|---|---|---|
-| <!-- none yet --> | | | | |
+| 2026-10-16 | [Quotes slowed and logs flooded while the fleet cache was lost](2026-10-16-gd-01-local-redis-loss.md) | Game day GD-01, local (Compose) | Valkey, fleet-state, dispatch, orders | None (no budgets locally) |

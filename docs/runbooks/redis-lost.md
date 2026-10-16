@@ -24,11 +24,16 @@ automatic ([services/fleet/README.md](../../services/fleet/README.md)):
    for `fleet:state:rebuilt_at` to be newer than the loss, replays the last 30 minutes (`RECOVERY_WINDOW`) of
    `orders.events` and `dispatch.events`, then resumes.
 
-GD-01 expects all of this within about 90 seconds. The alert fires when one step is stuck for 5 minutes.
+GD-01 expects all of this within about 90 seconds; the local run measured 2–5 s from Valkey back to the marker and
+about 12 s to dispatch resuming. The alert fires when one step is stuck for 5 minutes.
 
 ## Impact
 
-- **Orders and tracking: none.** Orders does not use Redis; tracking reads Kafka.
+- **Orders: no failures; quotes can be slower.** Orders does not use Redis, but every quote asks dispatch for an ETA.
+  While Valkey is down, the first ETA request on each dispatch replica waits out `ETA_BUDGET` (250 ms) before the
+  503; for the next 5 s dispatch answers 503 at once, and orders uses its local estimate. Before this was fixed,
+  every quote paid the 250 ms (GD-01, local, 2026-10-16).
+- **Tracking: none.** Tracking reads Kafka, not Redis.
 - **Dispatch: no assignments** while paused. Orders confirmed during the pause wait (each one misses 60 s), and
   `GET /v1/eta` answers 503, so quotes use orders' local estimate (`ETAFallbackHigh`, `component=orders`).
 - **Positions:** while Valkey is down, fleet-state retries the same batch without committing, so its lag grows and

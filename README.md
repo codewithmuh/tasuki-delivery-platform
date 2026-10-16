@@ -11,7 +11,8 @@ you deploy next to your own**. Your system creates a delivery over the API; Tasu
 the nearest driver, streams the driver's position live to your customer's phone, and reports every status change
 back. It is open source (MIT), runs in your cloud account, and is built to production standards: idempotent orders,
 a Kafka-backed location pipeline, written SLOs, load tests and game days. It is sized for **1.5 million orders a
-month in one city**.
+month in one city**, and [measured](docs/loadtests/README.md) carrying that design's rainy-Friday peak (18,144
+orders/h, 641 GPS points/s, 2,707 live tracking pages) on one laptop with every software SLO met.
 
 > **Status: early, and honest about it.** The order, tracking and fleet path runs today; the [roadmap](#status) says
 > what comes next. The reference deployment is **Tokyo's 23 wards on real Tokyo roads**, and the merchants, drivers
@@ -35,14 +36,17 @@ what is deliberately out of scope.
 
 ## Status
 
-**Phase 1 of 7: finish and prove.** Every service is written, tested in CI and runs locally with one command. The
-AWS platform (Terraform) and the GitOps layer (Argo CD) are written and statically checked; running them on a real
+**Phase 1 of 7 is done: the platform is finished and proven locally.** Every service is written, tested in CI and
+runs with one command; the whole order-to-delivery path has [published load-test numbers](docs/loadtests/README.md)
+up to the full design scale, and the first game day ([GD-01](docs/gameday/experiments/01-redis-loss.md#results)) ran
+with a [postmortem](docs/postmortems/2026-10-16-gd-01-local-redis-loss.md) whose fixes shipped the same day. The AWS
+platform (Terraform) and the GitOps layer (Argo CD) are written and statically checked; running them on a real
 cluster is deliberately the **last** phase, once the product is ready for it.
 
 | Phase | Scope | Status |
 |---|---|---|
-| **1. Finish and prove** | Dispatch; the whole order-to-delivery path under load, with published numbers; the first game day | In progress |
-| **2. Any city** | Zones from a GeoJSON file, server-side zone lookup, configurable currency, tax and map region ([ADR 0020](docs/adr/0020-service-area-as-configuration.md)) | Next |
+| **1. Finish and prove** | Dispatch; the whole order-to-delivery path under load, with published numbers; the first game day | Done (locally) |
+| **2. Any city** | Zones from a GeoJSON file, server-side zone lookup, configurable currency, tax and map region ([ADR 0020](docs/adr/0020-service-area-as-configuration.md), proposed) | Next |
 | **3. Connectable** | Signed webhooks, a dashboard with login (orders, drivers, manual assignment, API keys), an API docs site | Planned |
 | **4. Driver app** | A web app (PWA) first; native later for background GPS | Planned |
 | **5. Easy install** | A single-server setup and a published Helm chart | Planned |
@@ -55,14 +59,15 @@ Phase 1, part by part:
 |---|---|---|
 | orders: quotes, idempotent orders, outbox relay, dispatch consumer | [services/orders](services/orders/) | Built, tested (incl. PostgreSQL races) |
 | fleet-ingest, fleet-state, tracking | [services/fleet](services/fleet/) | Built, tested |
-| dispatch (greedy, P1) | [services/fleet](services/fleet/) | In progress |
+| dispatch (greedy, P1) | [services/fleet](services/fleet/) | Built, tested; held the design-scale load test |
 | routing: OSRM on Tokyo roads | [services/routing](services/routing/) | Built; image built on `main` only (slow) |
-| simulator: the city | [services/simulator](services/simulator/) | Built, tested |
+| simulator: the city, including customers who watch their tracking page | [services/simulator](services/simulator/) | Built, tested |
 | console: live map + tracking page | [services/console](services/console/) | Built, tested |
 | SLOs, alerts, rollout gate, dashboards | [observability/](observability/), [tools/rollout-gate](tools/rollout-gate/) | Built, promtool-tested |
 | AWS platform (VPC, EKS, Karpenter, OIDC) | [infra/](infra/) | Written, statically checked; not applied yet |
 | GitOps (Argo CD, charts, policies, data stores) | [deploy/](deploy/) | Written, rendered and policy-checked; no cluster run yet |
-| Game days, load tests, postmortems | [docs/gameday/](docs/gameday/) | Plans only; no drill run yet |
+| Load tests | [docs/loadtests/](docs/loadtests/), [scripts/loadtest](scripts/loadtest/) | Two published runs on one laptop, up to the full design scale |
+| Game days, postmortems | [docs/gameday/](docs/gameday/), [docs/postmortems/](docs/postmortems/) | GD-01 run locally, with a postmortem; the other drills need the cluster (phase 7) |
 
 ## Quick start (local stack)
 
@@ -127,7 +132,9 @@ Run `make` with no arguments to list every command.
 | [observability/slo/README.md](observability/slo/README.md) | The SLOs, their SLIs and burn-rate alerts |
 | [docs/slo/error-budget-policy.md](docs/slo/error-budget-policy.md) | What happens when an error budget runs low or out |
 | [docs/runbooks/](docs/runbooks/) | One page per alert |
-| [docs/gameday/](docs/gameday/) | Game-day plans |
+| [docs/loadtests/](docs/loadtests/README.md) | Published load-test results, and how to reproduce them |
+| [docs/gameday/](docs/gameday/) | Game-day plans and results |
+| [docs/postmortems/](docs/postmortems/README.md) | Postmortems of incidents and game days |
 | [docs/threat-model.md](docs/threat-model.md) | STRIDE review and accepted risks |
 | [docs/adr/](docs/adr/) | Architecture decisions and why |
 

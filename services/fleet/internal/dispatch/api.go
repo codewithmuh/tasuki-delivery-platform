@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/codewithmuh/tasuki-delivery-platform/services/fleet/internal/auth"
@@ -18,6 +19,11 @@ import (
 
 // etaCandidates is how many of the nearest free couriers GET /v1/eta asks OSRM about.
 const etaCandidates = 5
+
+// etaRedisOpenFor: after a Redis failure, GET /v1/eta answers 503 at once for this long instead
+// of spending its whole budget on a Redis that is down. Game day GD-01 found every quote paying
+// the full 250 ms while Valkey was gone; orders uses its own estimate on any 503 anyway.
+const etaRedisOpenFor = 5 * time.Second
 
 var pingFrame = []byte(": ping\n\n")
 
@@ -44,6 +50,9 @@ type API struct {
 	metrics  *metrics
 	logger   *slog.Logger
 	now      func() time.Time
+
+	etaMu        sync.Mutex
+	etaOpenUntil time.Time // GET /v1/eta skips Redis until then (etaRedisOpenFor)
 }
 
 // Register adds the routes to srv.
@@ -271,10 +280,20 @@ func (a *API) eta(w http.ResponseWriter, r *http.Request) {
 			"store_lat, store_lng, dropoff_lat and dropoff_lng must be valid coordinates")
 		return
 	}
+	if a.etaRedisDown() {
+		w.Header().Set("Retry-After", "1")
+		kit.WriteError(w, http.StatusServiceUnavailable, "unavailable", "dispatch state is unavailable; retry shortly")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), a.cfg.ETABudget)
 	defer cancel()
 	free, err := a.freeCouriers(ctx, store)
 	if err != nil {
+		if r.Context().Err() == nil { // Redis failed or was too slow, not the caller hanging up
+			a.etaMu.Lock()
+			a.etaOpenUntil = a.now().Add(etaRedisOpenFor)
+			a.etaMu.Unlock()
+		}
 		a.unavailable(w, "eta", err)
 		return
 	}
@@ -299,6 +318,13 @@ func (a *API) eta(w http.ResponseWriter, r *http.Request) {
 		pickup = min(pickup, d[i][0])
 	}
 	kit.WriteJSON(w, http.StatusOK, etaResponse{EtaSeconds: pickup + travel, PickupS: pickup, TravelS: travel, Supply: supply})
+}
+
+// etaRedisDown reports whether a recent Redis failure means GET /v1/eta should not try Redis.
+func (a *API) etaRedisDown() bool {
+	a.etaMu.Lock()
+	defer a.etaMu.Unlock()
+	return a.now().Before(a.etaOpenUntil)
 }
 
 // freeCouriers returns the couriers near p that hold no offer and carry no order, nearest first.

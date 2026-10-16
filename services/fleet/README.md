@@ -142,7 +142,8 @@ Event and HTTP shapes are the ones in [contracts/README.md](../../contracts/READ
   `SEARCH_MAX_RADIUS_M`, one OSRM call capped at `ETA_ROUTING_TIMEOUT`, then the fallback. `pickup_s` is the
   nearest courier's road time to the store (with nobody nearby: the ride in from the maximum radius), `travel_s` the
   store to the drop-off, `supply` is `none`, `low` (fewer than `SUPPLY_LOW_BELOW` free couriers) or `ok`. 503 when
-  Redis is unavailable, so orders falls back.
+  Redis is unavailable, so orders falls back; after a Redis failure it answers 503 at once for 5 s instead of
+  spending the budget on a Redis that is down (found by game day GD-01).
 - **SLI.** `dispatch_assignment_duration_seconds{outcome}` is observed once per order, from
   `OrderConfirmed.occurred_at`: at `CourierAssigned` (`assigned`) or at the first `NoCourierAvailable`
   (`no_courier`), so orders that never get a courier count as bad. Whoever sets the order's `sli` flag first (one

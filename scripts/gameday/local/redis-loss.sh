@@ -13,8 +13,9 @@ Usage: $(basename "$0") --mode restart|flushall [--outage SECONDS] [--timeout SE
              persistence, so it comes back empty: the local twin of deleting redis-0.
   flushall   FLUSHALL on the running Valkey: the data goes, the process and connections stay.
 
-Then it samples once a second until fleet-state has rebuilt the cache, both fleet-state and dispatch are ready
-and dispatch has resumed (or --timeout, default 300 s), printing a timeline: the cache marker, couriers in the
+Then it samples once a second until both services have recovered: fleet-state has rebuilt the cache (its rebuild
+counter went up), dispatch has rebuilt its own state (its recovery counter went up), and both are ready again with
+dispatch unpaused (or --timeout, default 300 s). It prints a timeline: the cache marker, couriers in the
 geo index, readiness, dispatch paused, and what users saw meanwhile (tracking events sent, orders created,
 orders 5xx). Also written to --log (default: docs/gameday/logs/<date>-gd-01-local-<mode>.log).
 
@@ -59,19 +60,20 @@ sample() {
   else
     up=down marker="-" couriers="-"
   fi
-  printf '%s %s %s %s %s %s %s %s %s %s\n' "$up" "$marker" "$couriers" \
+  printf '%s %s %s %s %s %s %s %s %s %s %s\n' "$up" "$marker" "$couriers" \
     "$(ready http://127.0.0.1:8084/readyz)" "$(ready http://127.0.0.1:8082/readyz)" \
     "$(metric http://127.0.0.1:8082/metrics dispatch_paused)" \
     "$(metric http://127.0.0.1:8083/metrics 'tracking_event_age_seconds_count')" \
     "$(metric http://127.0.0.1:8090/metrics simulator_orders_created_total)" \
     "$(metric http://127.0.0.1:8000/metrics 'http_requests_total\{[^}]*status="5[0-9][0-9]"[^}]*\}')" \
-    "$(metric http://127.0.0.1:8084/metrics fleet_state_rebuilds_total)"
+    "$(metric http://127.0.0.1:8084/metrics fleet_state_rebuilds_total)" \
+    "$(metric http://127.0.0.1:8082/metrics dispatch_recoveries_total)"
 }
 
 say() { printf '%s\n' "$*" | tee -a "$log"; }
 
 # ---- Preconditions -----------------------------------------------------------------------------------------
-read -r up marker couriers fs_ready d_ready paused events0 orders0 errors0 rebuilds0 <<<"$(sample)"
+read -r up marker couriers fs_ready d_ready paused events0 orders0 errors0 rebuilds0 recoveries0 <<<"$(sample)"
 if [ "$up" != up ] || [ "$marker" != 1 ] || [ "$fs_ready" != yes ] || [ "$d_ready" != yes ]; then
   echo "Not at steady state (valkey $up, marker $marker, fleet-state ready $fs_ready, dispatch ready $d_ready)." >&2
   echo "Start the stack and the simulator first, and let them run for at least 5 minutes." >&2
@@ -83,7 +85,7 @@ if [ "$(ready http://127.0.0.1:8090/readyz)" != yes ]; then
 fi
 
 say "# GD-01 local, mode=$mode, started $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-say "steady state: couriers in geo index $couriers, dispatch paused $paused, fleet-state rebuilds so far $rebuilds0"
+say "steady state: couriers in geo index $couriers, dispatch paused $paused, fleet-state rebuilds so far $rebuilds0, dispatch recoveries so far $recoveries0"
 say ""
 say "   t  valkey  marker  couriers  fs-ready  dispatch-ready  paused  tracking-events  orders-created  orders-5xx"
 
@@ -91,7 +93,7 @@ start=$(date +%s)
 t() { echo $(($(date +%s) - start)); }
 row() {
   local s
-  read -r up marker couriers fs_ready d_ready paused events orders errors rebuilds <<<"$(sample)"
+  read -r up marker couriers fs_ready d_ready paused events orders errors rebuilds recoveries <<<"$(sample)"
   s="$(printf '%4s  %-6s  %-6s  %-8s  %-8s  %-14s  %-6s  %+15s  %+14s  %+10s' "$(t)" "$up" "$marker" "$couriers" \
     "$fs_ready" "$d_ready" "$paused" "+$((events - events0))" "+$((orders - orders0))" "+$((errors - errors0))")"
   say "$s"
@@ -124,7 +126,10 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
   [ -z "$back" ] && [ "$up" = up ] && back=$(t)
   [ "$paused" = 1 ] && dispatch_paused_seen=yes
   [ -z "$marker_at" ] && [ "$marker" = 1 ] && marker_at=$(t)
-  if [ -n "$marker_at" ] && [ "$fs_ready" = yes ] && [ "$d_ready" = yes ] && [ "$paused" = 0 ]; then
+  # Both services must prove they noticed the loss and recovered: an early sample can look healthy
+  # before dispatch has checked its sentinel (the first local run stopped watching too soon).
+  if [ -n "$marker_at" ] && [ "$fs_ready" = yes ] && [ "$d_ready" = yes ] && [ "$paused" = 0 ] &&
+    [ "$rebuilds" -gt "$rebuilds0" ] && [ "$recoveries" -gt "$recoveries0" ]; then
     resumed_at=$(t)
     break
   fi
@@ -135,9 +140,10 @@ say ""
 say "## Result"
 say "valkey answering again:            ${back:-never} s after the injection"
 say "fleet:state:rebuilt_at back:       ${marker_at:-never} s after the injection"
-say "fleet-state and dispatch ready:    ${resumed_at:-not within the timeout} s after the injection"
+say "both services recovered:           ${resumed_at:-not within the timeout} s after the injection"
 say "dispatch paused at some point:     $dispatch_paused_seen"
 say "fleet-state rebuilds:              +$((rebuilds - rebuilds0))"
+say "dispatch recoveries:               +$((recoveries - recoveries0))"
 say "couriers in the geo index now:     $couriers"
 say "tracking events sent meanwhile:    +$((events - events0))   (hypothesis: keeps rising, tracking never reads Valkey)"
 say "orders created meanwhile:          +$((orders - orders0))   (hypothesis: keeps rising, orders never reads Valkey)"
