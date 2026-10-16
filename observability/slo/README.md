@@ -33,6 +33,14 @@ and Prometheus but not the objectives.
 
 Ledger correctness, webhook timeliness and ETA accuracy (§9) belong to P3 services and are not defined yet.
 
+**What tracking freshness does not count.** `tracking_event_age_seconds` is observed for live position events only,
+not for the snapshot a viewer receives when it connects (the courier's last known point). That snapshot can be as
+old as the courier's GPS interval: up to 15 s for a courier waiting at a store. This is deliberate, because the SLI
+measures how long the pipeline takes, not how often phones report, and every position carries `received_at` so a
+page can show its age. Measured from the customer's side in the
+[design-scale load test](../../docs/loadtests/2026-10-16-design-scale-local.md), including snapshots: 99.76 % of
+positions were under 10 s, against 100 % for the SLI.
+
 ### Metrics the SLIs need
 
 | SLI | Metric | Status |

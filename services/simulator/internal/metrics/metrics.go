@@ -26,6 +26,11 @@ type Metrics struct {
 	CourierStates   *prometheus.GaugeVec   // state
 	Routes          *prometheus.CounterVec // source
 	DemandRate      *prometheus.GaugeVec   // ward
+
+	TrackingViewers     prometheus.Gauge
+	TrackingStreams     *prometheus.CounterVec // result
+	TrackingEvents      *prometheus.CounterVec // event
+	TrackingPositionAge prometheus.Histogram
 }
 
 // New creates the metrics and registers them with reg.
@@ -83,10 +88,28 @@ func New(reg prometheus.Registerer) *Metrics {
 		DemandRate: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "simulator_demand_orders_per_hour", Help: "The scenario's current expected order rate per ward (curve × weather).",
 		}, []string{"ward"}),
+		TrackingViewers: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "simulator_tracking_viewers", Help: "Customers with their tracking page open (open tracking streams).",
+		}),
+		TrackingStreams: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "simulator_tracking_streams_total",
+			Help: "Tracking streams that finished, by result: ended (the server sent end), stopped (the simulation stopped), " +
+				"capped (not opened: too many viewers), bad_url, or the failure reason (http_401, timeout, ...).",
+		}, []string{"result"}),
+		TrackingEvents: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "simulator_tracking_events_total", Help: "Events viewers received, by event (status, position, end).",
+		}, []string{"event"}),
+		TrackingPositionAge: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name: "simulator_tracking_position_age_seconds",
+			Help: "Age of each courier position when a viewer received it: now minus received_at. The customer's view of the tracking freshness SLI.",
+			// Around the 10 s tracking freshness SLO (docs/design.md §9).
+			Buckets: []float64{0.25, 0.5, 1, 2, 3, 5, 10, 15, 30, 60},
+		}),
 	}
 	reg.MustRegister(m.OrdersAttempted, m.OrdersCreated, m.OrdersFailed, m.OrdersReplayed, m.Requests, m.Retries,
 		m.LocationBatches, m.LocationPoints, m.Offers, m.Deliveries, m.JobsAbandoned, m.CouriersActive,
-		m.CourierStates, m.Routes, m.DemandRate)
+		m.CourierStates, m.Routes, m.DemandRate,
+		m.TrackingViewers, m.TrackingStreams, m.TrackingEvents, m.TrackingPositionAge)
 	return m
 }
 

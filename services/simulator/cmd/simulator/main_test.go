@@ -34,10 +34,13 @@ func TestRunCommands(t *testing.T) {
 		{"validate built-ins", []string{"validate"}, nil, 0, "rainy-friday: ok"},
 		{"validate a bad file", []string{"validate", bad}, nil, 1, "unknown ward"},
 		{"bad flag", []string{"run", "-nope"}, nil, 2, "flag provided but not defined"},
+		{"bad start time", []string{"run", "-start", "25:99"}, nil, 2, `invalid -start "25:99"`},
 		{"unknown scenario", []string{"run", "-scenario", "atlantis"}, nil, 1, "not a built-in scenario"},
 		{"seeding needs ADMIN_TOKEN", []string{"seed", "-seed", "9"}, noToken, 1, "ADMIN_TOKEN is required"},
 		{"run needs ADMIN_TOKEN", []string{"run", "-scenario", "small", "-duration", "1s"},
 			map[string]string{"STATE_FILE": filepath.Join(dir, "s.json"), "PORT": "0"}, 1, "ADMIN_TOKEN is required"},
+		{"run with a start time still needs ADMIN_TOKEN", []string{"run", "-scenario", "small", "-start", "11:45", "-duration", "1s"},
+			map[string]string{"STATE_FILE": filepath.Join(dir, "t.json"), "PORT": "0"}, 1, "ADMIN_TOKEN is required"},
 		{"healthcheck with nothing listening", []string{"healthcheck"}, map[string]string{"PORT": "1"}, 1, "probe"},
 	}
 	for _, tc := range cases {

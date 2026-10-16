@@ -126,8 +126,9 @@ docker run --rm -e ADMIN_TOKEN=... -e ORDERS_URL=http://orders:8000 ... \
 ```
 
 `-scenario` takes a built-in name or a path to your own YAML file. `-seed N` overrides the
-scenario's seed, `-duration` overrides how long it runs, and `-fresh` forces new merchants and
-couriers. `-scenario` defaults to the `SCENARIO` environment variable. **In the cluster the
+scenario's seed, `-duration` overrides how long it runs, `-start HH:MM` starts the simulated day
+at that time instead of `clock.start` (`-start 11:45` begins a rainy-Friday run in the rain), and
+`-fresh` forces new merchants and couriers. `-scenario` defaults to the `SCENARIO` environment variable. **In the cluster the
 scenario is chosen with env `SCENARIO`** in [deploy/apps/services/simulator.yaml](../../deploy/apps/services/simulator.yaml)
 (or the environment's values file), and the args stay `[run]`.
 
@@ -162,6 +163,7 @@ a pod limit was left at its laptop value.
 | `ORDERS_URL` | `http://127.0.0.1:8000` | orders service |
 | `FLEET_INGEST_URL` | `http://127.0.0.1:8081` | fleet-ingest |
 | `DISPATCH_URL` | `http://127.0.0.1:8082` | dispatch |
+| `TRACKING_URL` | `http://127.0.0.1:8083` | tracking (viewers' streams) |
 | `ROUTING_URL` | `http://127.0.0.1:5000` | OSRM; `none` = straight lines only |
 | `ADMIN_TOKEN` | (none) | Bearer token for `/v1/admin/*`; needed to seed and to re-issue tokens |
 | `PORT` | `8080` | probes and metrics |
@@ -206,6 +208,8 @@ Times of day are quoted `"HH:MM"` in Tokyo time, and `"24:00"` means the end of 
 | `demand.curve[]` | (none) | `{at, per_hour}`: orders/h for the whole area, linear between points, wrapping at midnight |
 | `demand.prep_time` | 5–15 min | food preparation, from order creation (divided by `speedup`) |
 | `demand.max_in_flight` | 200 | concurrent order requests before `backpressure` |
+| `demand.watch_share` | 0 | share of customers who open the tracking page and keep it open until delivery |
+| `demand.max_viewers` | 12000 | open tracking streams before new viewers are skipped (`capped`) |
 | `weather[]` | none | `{name, from, to, demand_multiplier, speed_multiplier, offline_share}`, repeated daily; overlaps multiply |
 | `gps.moving_interval`, `idle_interval`, `noise_m` | 4 s, 15 s, 0 | phone GPS behaviour |
 
@@ -231,6 +235,10 @@ failed order can be found in the orders service's logs.
 | `simulator_couriers_active`, `simulator_couriers` | `state` | couriers online, by state |
 | `simulator_routes_total` | `source` (osrm, straight_line) | OSRM health as couriers see it |
 | `simulator_demand_orders_per_hour` | `ward` | the scenario's intended rate, to plot against what the API accepted |
+| `simulator_tracking_viewers` | | customers with the tracking page open (open tracking streams) |
+| `simulator_tracking_streams_total` | `result` (ended, stopped, capped, bad_url, or a failure reason) | tracking streams that finished |
+| `simulator_tracking_events_total` | `event` (status, position, end) | what viewers received |
+| `simulator_tracking_position_age_seconds` | | age of each courier position when a viewer got it (now − `received_at`): tracking freshness as the customer sees it |
 
 **Shutdown.** On SIGTERM `/readyz` turns 503 and customers stop placing orders, though orders
 already in flight finish. Couriers decline new offers, finish the delivery in hand within

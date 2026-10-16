@@ -66,6 +66,7 @@ demand:
   # 5 orders/s with 4 attempts of up to 5 s each during an outage is ~100–150 in flight; the
   # cap leaves room before orders fail as "backpressure".
   max_in_flight: 1000
+  watch_share: 0.6 # ~3,600 tracking streams open at the lunch peak (design §4 sizes tracking for 10,000)
 
 weather:
   - name: rain

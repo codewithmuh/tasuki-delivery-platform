@@ -57,6 +57,7 @@ demand:
     - { at: "23:30", per_hour: 60 }
   prep_time: { min: 5m, max: 15m }
   max_in_flight: 400
+  watch_share: 0.6 # customers who keep the tracking page open until delivery (design §4)
 
 weather:
   - name: rain

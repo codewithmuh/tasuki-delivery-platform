@@ -78,6 +78,11 @@ type Demand struct {
 	// MaxInFlight caps concurrent order requests, so a stalled orders service cannot make
 	// the simulator pile up unlimited goroutines. Orders over the cap count as failed.
 	MaxInFlight int `yaml:"max_in_flight"`
+	// WatchShare is the fraction of customers who keep the tracking page open until their
+	// order is delivered (design §4 assumes about 60 %). 0 means nobody watches.
+	WatchShare float64 `yaml:"watch_share"`
+	// MaxViewers caps open tracking streams; viewers over the cap are counted and skipped.
+	MaxViewers int `yaml:"max_viewers"`
 }
 
 // CurvePoint is the order rate at a time of day; the rate changes linearly between points.
@@ -179,6 +184,7 @@ func (s *Scenario) applyDefaults() {
 		s.Demand.PrepTime = DurationRange{Min: 5 * time.Minute, Max: 15 * time.Minute}
 	}
 	setIfZero(&s.Demand.MaxInFlight, 200)
+	setIfZero(&s.Demand.MaxViewers, 12000)
 	for i := range s.Weather {
 		setIfZero(&s.Weather[i].DemandMultiplier, 1)
 		setIfZero(&s.Weather[i].SpeedMultiplier, 1)
@@ -242,6 +248,8 @@ func (s *Scenario) Validate() error {
 	}
 	checkRange(check, "demand.prep_time", s.Demand.PrepTime)
 	check(s.Demand.MaxInFlight >= 1, "demand.max_in_flight must be at least 1")
+	check(s.Demand.WatchShare >= 0 && s.Demand.WatchShare <= 1, "demand.watch_share must be between 0 and 1")
+	check(s.Demand.MaxViewers >= 1 && s.Demand.MaxViewers <= 50000, "demand.max_viewers must be between 1 and 50000")
 
 	for i, w := range s.Weather {
 		check(w.From < w.To, "weather[%d]: from %v must be before to %v", i, w.From, w.To)

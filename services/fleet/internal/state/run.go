@@ -85,6 +85,7 @@ func Run(ctx context.Context, getenv func(string) string, logger *slog.Logger, v
 	if err != nil {
 		return err
 	}
+	redis.SetLogger(kit.RedisLogger{Logger: logger}) // JSON at debug, not plain text on stderr
 	rdb := redis.NewClient(redisOpts)
 
 	srv := kit.New(base, logger)

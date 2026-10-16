@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/codewithmuh/tasuki-delivery-platform/services/simulator/internal/clients"
+	"github.com/codewithmuh/tasuki-delivery-platform/services/simulator/internal/scenario"
 	"github.com/codewithmuh/tasuki-delivery-platform/services/simulator/internal/sim"
 	"github.com/codewithmuh/tasuki-delivery-platform/services/simulator/scenarios"
 )
@@ -89,8 +90,18 @@ func runOrSeed(ctx context.Context, command string, args []string, getenv func(s
 	seed := flags.Uint64("seed", 0, "override the scenario's seed (0 keeps it)")
 	duration := flags.Duration("duration", 0, "stop after this long (0 keeps the scenario's setting)")
 	fresh := flags.Bool("fresh", false, "seed new merchants and couriers even if the state file matches")
+	start := flags.String("start", "", `simulated time of day to start at, "HH:MM" (overrides clock.start; e.g. 11:45 starts in the rain)`)
 	if err := flags.Parse(args); err != nil {
 		return 2
+	}
+	var startAt *scenario.TimeOfDay
+	if *start != "" {
+		var tod scenario.TimeOfDay
+		if err := tod.UnmarshalText([]byte(*start)); err != nil {
+			_, _ = fmt.Fprintf(stderr, "invalid -start %q: %v\n", *start, err)
+			return 2
+		}
+		startAt = &tod
 	}
 
 	sc, err := sim.LoadScenario(*name)
@@ -100,6 +111,9 @@ func runOrSeed(ctx context.Context, command string, args []string, getenv func(s
 	}
 	if *seed != 0 {
 		sc.Seed = *seed
+	}
+	if startAt != nil {
+		sc.Clock.Start = startAt
 	}
 	logger = logger.With("scenario", sc.Name, "version", cfg.Version)
 
