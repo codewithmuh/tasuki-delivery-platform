@@ -39,7 +39,7 @@ resource "terraform_data" "backup_session" {
 
 module "orders_db_backup_pod_identity" {
   source  = "terraform-aws-modules/eks-pod-identity/aws"
-  version = "2.9.0"
+  version = "2.10.0"
 
   for_each = local.backup_namespaces
 
@@ -88,7 +88,7 @@ module "orders_db_backup_pod_identity" {
 # Read-only: a restore must never write into the archive it restores from.
 module "orders_db_restore_pod_identity" {
   source  = "terraform-aws-modules/eks-pod-identity/aws"
-  version = "2.9.0"
+  version = "2.10.0"
 
   for_each = local.backup_namespaces
 
