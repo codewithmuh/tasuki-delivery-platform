@@ -1,8 +1,13 @@
 # Tasuki — the open-source delivery platform you run in your own cloud
 
+[![Release](https://img.shields.io/github/v/release/codewithmuh/tasuki-delivery-platform?style=flat-square&color=blue)](https://github.com/codewithmuh/tasuki-delivery-platform/releases)
+[![Stars](https://img.shields.io/github/stars/codewithmuh/tasuki-delivery-platform?style=flat-square&color=gold)](https://github.com/codewithmuh/tasuki-delivery-platform/stargazers)
+[![Forks](https://img.shields.io/github/forks/codewithmuh/tasuki-delivery-platform?style=flat-square&color=blueviolet)](https://github.com/codewithmuh/tasuki-delivery-platform/network/members)
 [![ci](https://github.com/codewithmuh/tasuki-delivery-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/codewithmuh/tasuki-delivery-platform/actions/workflows/ci.yml)
 [![release](https://github.com/codewithmuh/tasuki-delivery-platform/actions/workflows/release.yml/badge.svg)](https://github.com/codewithmuh/tasuki-delivery-platform/actions/workflows/release.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
+[![YouTube](https://img.shields.io/badge/YouTube-codewithmuh-red?style=flat-square&logo=youtube)](https://youtube.com/@codewithmuh)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Muhammad%20Rashid-blue?style=flat-square&logo=linkedin)](https://www.linkedin.com/in/muhammadrashid-daha/)
 
 <img width="2172" height="724" alt="tasuki-github-cover-q75" src="https://github.com/user-attachments/assets/eb94039c-3550-4cec-88b6-6926bb4cea20" />
 
