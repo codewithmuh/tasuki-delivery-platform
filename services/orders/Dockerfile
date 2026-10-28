@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM ghcr.io/astral-sh/uv:0.13.1 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.6 AS uv
 
 # ---- build: resolve the locked dependencies into a virtualenv ----
 FROM python:3.13-slim-trixie AS build
