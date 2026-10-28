@@ -34,7 +34,7 @@ jobs:
       # Runs before `terraform init`, so the registry modules downloaded into .terraform/ are not
       # scanned as if they were our code. Exceptions and their reasons: infra/.checkov.yaml.
       - name: Checkov
-        uses: bridgecrewio/checkov-action@6f26dc90000b74feb589a906cdfae540f5119895 # v12.3134.0
+        uses: bridgecrewio/checkov-action@c3e106d5f8f4253a6de5110efb41a080f83db294 # v12.3135.0
         with:
           directory: infra
           config_file: infra/.checkov.yaml
