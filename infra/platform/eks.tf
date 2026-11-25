@@ -22,7 +22,7 @@ locals {
 #trivy:ignore:AWS-0104
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "21.29.0"
+  version = "21.30.2"
 
   name               = var.name
   kubernetes_version = var.kubernetes_version
